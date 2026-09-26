@@ -21,6 +21,14 @@ export const GLYPHS = {
   music: ["..XXXXX", "..X...X", "..X...X", "..X...X", "XXX.XXX", "XXX.XXX", ".X...X."],
   list: ["X.XXXXX", ".......", "X.XXXXX", ".......", "X.XXXXX"],
   timer: ["..XXX..", "...X...", ".XXXXX.", "X..X..X", "X..XX.X", "X.....X", ".XXXXX."],
+  // die faces, for rolling a new take
+  die1: [".....", ".....", "..X..", ".....", "....."],
+  die2: ["X....", ".....", ".....", ".....", "....X"],
+  die3: ["X....", ".....", "..X..", ".....", "....X"],
+  die4: ["X...X", ".....", ".....", ".....", "X...X"],
+  die5: ["X...X", ".....", "..X..", ".....", "X...X"],
+  die6: ["X...X", ".....", "X...X", ".....", "X...X"],
+  pen: ["....XX", "...XXX", "..XXX.", ".XXX..", "XXX...", "X....."],
 } as const
 
 export type GlyphName = keyof typeof GLYPHS

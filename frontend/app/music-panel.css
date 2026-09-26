@@ -1,0 +1,542 @@
+/* The radio's one panel: stations, a sentence you can tap, and three fine
+   dials. Hairlines and type do the work; the accent marks only what is live
+   or in your hands. The character is in how things move: pieces stretch,
+   squash, and settle on springs, and every change answers the hand. */
+
+/* Springs, as damped oscillators sampled into linear() (ζ 0.62, 0.42, 0.3).
+   Browsers without linear() get the closest cubic-bezier. */
+:root {
+  --spring-snappy: cubic-bezier(0.3, 1.25, 0.5, 1);
+  --spring-bouncy: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --spring-jelly: cubic-bezier(0.34, 1.8, 0.5, 1);
+  --spring-snappy-ms: 480ms;
+  --spring-bouncy-ms: 760ms;
+  --spring-jelly-ms: 880ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+@supports (transition-timing-function: linear(0, 1)) {
+  :root {
+    --spring-snappy: linear(0, 0.037, 0.13, 0.256, 0.396, 0.537, 0.667, 0.781, 0.876, 0.951, 1.007, 1.046, 1.069, 1.081, 1.083, 1.079, 1.071, 1.06, 1.048, 1.037, 1.026, 1.017, 1.009, 1.003, 0.999, 0.996, 0.994, 0.993, 0.993, 0.993, 0.994, 0.995, 0.996, 0.997, 0.998, 0.999, 1);
+    --spring-bouncy: linear(0, 0.077, 0.265, 0.504, 0.744, 0.95, 1.103, 1.195, 1.232, 1.224, 1.186, 1.132, 1.075, 1.024, 0.985, 0.959, 0.947, 0.946, 0.953, 0.965, 0.979, 0.991, 1.001, 1.008, 1.012, 1.013, 1.012, 1.009, 1.006, 1.003, 1, 0.998, 0.997, 0.997, 0.997, 0.998, 1);
+    --spring-jelly: linear(0, 0.146, 0.485, 0.867, 1.173, 1.342, 1.366, 1.282, 1.145, 1.008, 0.909, 0.864, 0.87, 0.91, 0.963, 1.011, 1.041, 1.052, 1.045, 1.027, 1.008, 0.991, 0.983, 0.981, 0.985, 0.992, 0.999, 1.005, 1.007, 1.007, 1.005, 1.002, 1, 0.998, 0.997, 0.998, 1);
+  }
+}
+
+/* The page scrolls when the room needs more height than the window has. */
+.site-shell { height: auto; min-height: 100dvh; overflow: visible; }
+.workspace-grid { flex: 1 0 auto; }
+/* clip rather than hide: a hidden overflow is still a scroll container, and
+   focusing a control could slide the whole card sideways under its corner glow */
+.music-card { min-height: 0; overflow: clip; }
+
+.music-panel {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(0.5rem, 1.4vw, 1rem);
+}
+
+/* The ring takes whatever height the room leaves over, as a square. */
+.music-panel .visualizer-stage {
+  flex: 1 1 auto;
+  min-height: clamp(14rem, 34vh, 19rem);
+  container-type: size;
+}
+.music-panel .visualizer-stage > .aspect-square { width: min(100cqw, 100cqh, 26rem); max-width: none; }
+
+/* the play button gives under the finger and springs back */
+.music-panel .play-key { transition: transform var(--spring-jelly-ms) var(--spring-jelly), background-color 180ms ease; }
+.music-panel .play-key:active:not(:disabled) { transform: scale(0.9); transition-duration: 90ms; transition-timing-function: ease-out; }
+
+.sound-panel {
+  display: grid;
+  width: min(100%, 38rem);
+  gap: clamp(1.1rem, 2.2vw, 1.6rem);
+  color: var(--text);
+}
+.sound-panel :is(button, [role="button"], [role="slider"], textarea):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.sound-panel button { cursor: pointer; }
+
+/* Anything pressable in the panel dips under the finger and springs back. */
+.sound-panel :is(.station, .tray-option, .tune-in, .foot-action, .word-tray-foot button, .writer-ideas button) {
+  transition: color 160ms ease, background-color 160ms ease, transform var(--spring-jelly-ms) var(--spring-jelly);
+}
+.sound-panel :is(.station, .tray-option, .tune-in, .foot-action, .word-tray-foot button, .writer-ideas button):active:not(:disabled, [aria-disabled="true"]) {
+  transform: scale(0.93);
+  transition-duration: 160ms, 160ms, 90ms;
+  transition-timing-function: ease, ease, ease-out;
+}
+
+/* ── letters ───────────────────────────────────────────────────────────── */
+
+.rolling-word { display: inline-block; white-space: nowrap; }
+.rolling-letter {
+  display: inline-block;
+  animation: letter-in 560ms var(--spring-bouncy) backwards;
+  animation-delay: calc(var(--delay, 0ms) + var(--i) * 14ms);
+}
+
+/* ── stations ──────────────────────────────────────────────────────────── */
+
+.stations {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  /* left-aligned with the sentence, so "your mix" grows the row to the right
+     instead of shifting every station */
+  justify-self: start;
+  padding: 0.25rem;
+  border: 1px solid var(--line-color);
+  border-radius: 1.3rem;
+  background: color-mix(in srgb, var(--surface-soft) 70%, transparent);
+}
+.station {
+  position: relative;
+  z-index: 1;
+  min-height: 2.15rem;
+  padding: 0.35rem 0.95rem;
+  border-radius: 999px;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  font-weight: 520;
+  white-space: nowrap;
+}
+.station:hover { color: var(--text); }
+.station[aria-checked="true"] { color: var(--accent-ink); }
+.station.is-yours {
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent-ink);
+  font-style: italic;
+  animation: pop-in var(--spring-bouncy-ms) var(--spring-bouncy) backwards;
+}
+/* The pill behind the playing station. Its leading edge sets off first and
+   the trailing edge follows, so it stretches toward the next station. */
+.stations-pill {
+  position: absolute;
+  z-index: 0;
+  transition:
+    left var(--spring-snappy-ms) var(--spring-snappy),
+    right var(--spring-snappy-ms) var(--spring-snappy),
+    top var(--spring-snappy-ms) var(--spring-snappy),
+    height var(--spring-snappy-ms) var(--spring-snappy);
+}
+/* the leading edge eases out and stops at the station; the trailing edge
+   catches up on a spring, so any overshoot squeezes the pill, never pushes
+   it past the row */
+.stations-pill[data-heading="right"] {
+  transition:
+    right 340ms var(--ease-out),
+    left var(--spring-snappy-ms) 50ms var(--spring-snappy),
+    top var(--spring-snappy-ms) var(--spring-snappy),
+    height var(--spring-snappy-ms) var(--spring-snappy);
+}
+.stations-pill[data-heading="left"] {
+  transition:
+    left 340ms var(--ease-out),
+    right var(--spring-snappy-ms) 50ms var(--spring-snappy),
+    top var(--spring-snappy-ms) var(--spring-snappy),
+    height var(--spring-snappy-ms) var(--spring-snappy);
+}
+.stations-pill-body {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 30%, transparent);
+  /* lands with a squash once it arrives */
+  animation: pill-land 620ms 260ms var(--spring-jelly) backwards;
+}
+/* nothing to land on the first paint */
+.stations-pill:not([data-heading]) .stations-pill-body { animation: none; }
+
+/* ── the sentence ──────────────────────────────────────────────────────── */
+
+.sound-words { min-width: 0; }
+.sentence {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: clamp(1.12rem, 1.85vw, 1.42rem);
+  font-weight: 480;
+  line-height: 1.6;
+  letter-spacing: -0.022em;
+  text-wrap: pretty;
+}
+.word {
+  --underline: color-mix(in srgb, var(--accent) 85%, transparent);
+  padding: 0.04em 0.14em 0.14em;
+  margin: 0 -0.14em;
+  border-radius: 0.38em;
+  color: var(--text);
+  /* the countdown bar, then the dotted underline */
+  background-image:
+    linear-gradient(var(--accent), var(--accent)),
+    radial-gradient(circle, var(--underline) 0.85px, transparent 1.25px);
+  background-position: 0 100%, 0 100%;
+  background-repeat: no-repeat, repeat-x;
+  background-size: 0 2px, 5px 4px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  cursor: pointer;
+  outline-offset: 1px;
+  transition: color 160ms ease, background-color 200ms ease;
+}
+.word:hover { color: var(--accent-deep); animation: dots-march 700ms linear infinite; }
+.word[aria-expanded="true"] {
+  color: var(--accent-deep);
+  background-color: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.word[aria-pressed="false"], .word.is-ghost { --underline: var(--text-faint); color: var(--text-dim); }
+.word.is-ghost { font-style: italic; }
+/* The edited word's underline fills while the change waits to tune in, so
+   the pause reads as a countdown; each new edit starts it again. */
+.charge-0 .word.is-charging { animation: charge-a 900ms linear forwards; }
+.charge-1 .word.is-charging { animation: charge-b 900ms linear forwards; }
+.word.is-tuned { animation: tuned-flash 900ms ease-out; }
+
+.word-tray {
+  margin-top: 0.9rem;
+  padding-top: 0.85rem;
+  border-top: 1px dashed var(--line-strong);
+  animation: tray-in 240ms ease-out;
+}
+.word-tray-options { display: flex; flex-wrap: wrap; gap: 0.3rem 0.35rem; margin: 0 -0.55rem; }
+.tray-option {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.1rem;
+  padding: 0.25rem 0.75rem 0.25rem 0.6rem;
+  border-radius: 999px;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  /* the options spring in one after another */
+  animation: option-in 520ms var(--spring-bouncy) backwards;
+  animation-delay: calc(var(--i) * 28ms);
+}
+.tray-option::before {
+  position: relative;
+  z-index: 1;
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px currentColor;
+  content: "";
+  transition: transform var(--spring-bouncy-ms) var(--spring-bouncy), background-color 120ms ease;
+}
+.tray-option-label { position: relative; z-index: 1; }
+/* choosing fills the pill outward from its dot */
+.tray-option-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  clip-path: circle(0 at 0.9rem 50%);
+  transition: clip-path 420ms var(--spring-snappy);
+}
+.tray-option:hover { color: var(--text); background: color-mix(in srgb, var(--surface-soft) 80%, transparent); }
+.tray-option:is([aria-pressed="true"], [aria-checked="true"]) { color: var(--accent-deep); background: transparent; }
+.tray-option:is([aria-pressed="true"], [aria-checked="true"]) .tray-option-fill { clip-path: circle(120% at 0.9rem 50%); }
+.tray-option:is([aria-pressed="true"], [aria-checked="true"])::before { background: currentColor; transform: scale(1.45); }
+.tray-option[aria-disabled="true"] { cursor: default; }
+/* the last instrument will not leave: it shakes its head */
+.tray-option.is-refusing { animation: refuse 420ms ease-out; }
+.word-tray-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.55rem;
+  color: var(--text-faint);
+  font-size: 0.66rem;
+  animation: tray-in 300ms 120ms ease-out backwards;
+}
+.word-tray-foot button {
+  min-height: 1.8rem;
+  padding: 0 0.1rem;
+  color: var(--text-dim);
+  font-weight: 600;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+.word-tray-foot button:hover { color: var(--accent-deep); }
+
+.writer { display: grid; gap: 0.6rem; animation: tray-in 260ms ease-out; }
+.writer-input {
+  width: 100%;
+  min-height: 1.6em;
+  padding: 0 0 0.35rem;
+  overflow: hidden;
+  border: 0;
+  border-bottom: 1px dashed var(--line-strong);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  caret-color: var(--accent);
+  font-family: inherit;
+  font-size: clamp(1.12rem, 1.85vw, 1.42rem);
+  font-weight: 480;
+  line-height: 1.6;
+  letter-spacing: -0.022em;
+  resize: none;
+  transition: border-color 200ms ease;
+}
+.writer-input::placeholder { color: var(--text-faint); font-style: italic; }
+.sound-panel .writer-input:focus-visible { outline: none; border-bottom-color: var(--accent); }
+.writer-meta { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+.writer-ideas { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.85rem; color: var(--text-faint); font-size: 0.7rem; }
+.writer-ideas button {
+  min-height: 1.8rem;
+  color: var(--text-dim);
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  animation: option-in 480ms var(--spring-bouncy) backwards;
+  animation-delay: calc(80ms + var(--i) * 40ms);
+}
+.writer-ideas button:hover { color: var(--accent-deep); }
+.writer-count { flex-shrink: 0; color: var(--text-faint); font-size: 0.64rem; font-variant-numeric: tabular-nums; transition: color 200ms ease; }
+.writer-count.is-near { color: var(--accent-deep); }
+
+.sound-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 2.2rem;
+  margin-top: 0.8rem;
+  font-size: 0.72rem;
+}
+.sound-foot-state { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
+.sound-foot-state p { margin: 0; }
+.sound-foot-state p:empty { display: none; }
+.panel-state { display: inline-flex; align-items: center; gap: 0.5rem; color: var(--text-dim); animation: tray-in 200ms ease-out; }
+.panel-state.is-tuning::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  content: "";
+  animation: blink 900ms ease-in-out infinite;
+}
+.panel-state.is-tuned { color: var(--accent-deep); animation: pop-in var(--spring-bouncy-ms) var(--spring-bouncy) backwards, fade-out 400ms 1200ms ease-in forwards; }
+.tune-in {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2rem;
+  padding: 0 0.85rem;
+  border-radius: 999px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 0.72rem;
+  font-weight: 650;
+  animation: pop-in var(--spring-bouncy-ms) var(--spring-bouncy) backwards;
+}
+.tune-in:hover { background: var(--accent); color: var(--accent-ink); }
+.tune-in kbd { font-family: inherit; opacity: 0.6; }
+.sound-foot-actions { display: flex; flex-shrink: 0; align-items: center; gap: 1.25rem; }
+.foot-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 2rem;
+  color: var(--text-dim);
+}
+.foot-action:hover:not(:disabled) { color: var(--accent-deep); }
+.foot-action:disabled { cursor: not-allowed; opacity: 0.4; }
+.write-toggle-pen, .write-toggle-back { transition: transform var(--spring-bouncy-ms) var(--spring-bouncy); }
+.write-toggle:hover .write-toggle-pen { transform: rotate(-18deg) translateY(-1px); }
+.write-toggle-back { transform: rotate(90deg); }
+.write-toggle:hover .write-toggle-back { transform: rotate(90deg) translateY(-2px); }
+
+/* new take: a die that spins once per roll and tumbles while the take lands */
+.die {
+  display: inline-grid;
+  width: 1.2rem;
+  height: 1.2rem;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 0.3rem;
+  animation: die-roll var(--spring-bouncy-ms) var(--spring-bouncy);
+}
+.reroll:disabled .die { animation: none; }
+.reroll.is-rolling { opacity: 1; }
+.reroll.is-rolling .die { animation: die-tumble 700ms linear infinite; }
+.reroll:hover:not(:disabled) .die { transform: rotate(-14deg); transition: transform var(--spring-bouncy-ms) var(--spring-bouncy); }
+
+/* ── fine dials ────────────────────────────────────────────────────────── */
+
+.fine-dials {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.1rem clamp(1.1rem, 2.6vw, 2rem);
+  padding-top: clamp(1rem, 2vw, 1.35rem);
+  border-top: 1px solid var(--line-color);
+}
+.fine-dial { --at: 50%; min-width: 0; }
+.fine-dial-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; font-size: 0.7rem; line-height: 1.2; }
+.fine-dial-label { flex-shrink: 0; color: var(--text-dim); }
+.fine-dial-readout { display: inline-flex; min-width: 0; align-items: baseline; gap: 0.4rem; overflow: hidden; white-space: nowrap; }
+.fine-dial-word { overflow: hidden; color: var(--text); font-weight: 560; text-overflow: ellipsis; }
+.fine-dial-value { color: var(--text-faint); font-size: 0.64rem; font-variant-numeric: tabular-nums; transition: color 160ms ease; }
+.fine-dial.is-held .fine-dial-value { color: var(--accent-deep); }
+.fine-dial-speed { color: var(--accent-deep); font-size: 0.6rem; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; animation: pop-in var(--spring-bouncy-ms) var(--spring-bouncy) backwards; }
+.fine-dial-rail {
+  position: relative;
+  height: 1.6rem;
+  margin: 0.2rem 0 0;
+  border-radius: 0.4rem;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.fine-dial.is-held .fine-dial-rail { cursor: grabbing; }
+.fine-dial-track, .fine-dial-fill, .fine-dial-comb, .fine-dial-ticks { position: absolute; left: 0; right: 0; pointer-events: none; }
+.fine-dial-track { top: 50%; height: 1px; background: var(--line-strong); }
+.fine-dial-fill {
+  top: calc(50% - 1px);
+  left: var(--fill-start);
+  right: auto;
+  width: var(--fill-size);
+  height: 3px;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: left var(--spring-snappy-ms) var(--spring-snappy), width var(--spring-snappy-ms) var(--spring-snappy);
+}
+.fine-dial-ticks { top: calc(50% + 6px); height: 2px; }
+.fine-dial-ticks > i {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  margin-left: -1px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  opacity: 0.6;
+  transition: background-color 160ms ease, opacity 160ms ease, transform var(--spring-bouncy-ms) var(--spring-bouncy);
+}
+/* each tick pops as the fill reaches it */
+.fine-dial-ticks > i[data-on] { background: var(--accent); opacity: 1; transform: scale(1.5); }
+.fine-dial-notch {
+  position: absolute;
+  top: calc(50% - 5px);
+  width: 1px;
+  height: 4px;
+  background: var(--text-dim);
+  pointer-events: none;
+  transform-origin: 50% 100%;
+}
+/* clicking into neutral: the notch jumps */
+.fine-dial-notch[data-clicked] { animation: notch-click 520ms var(--spring-jelly); }
+.fine-dial.is-neutral .fine-dial-notch { background: var(--accent); }
+/* the loupe: whole-number ticks around the thumb while scrubbing finely */
+.fine-dial-comb {
+  top: calc(50% - 9px);
+  height: 5px;
+  background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--accent) 70%, transparent) 0 1px, transparent 1px 1%);
+  -webkit-mask-image: linear-gradient(90deg, transparent calc(var(--at) - 14%), #000 calc(var(--at) - 5%), #000 calc(var(--at) + 5%), transparent calc(var(--at) + 14%));
+  mask-image: linear-gradient(90deg, transparent calc(var(--at) - 14%), #000 calc(var(--at) - 5%), #000 calc(var(--at) + 5%), transparent calc(var(--at) + 14%));
+  opacity: 0;
+  transform: scaleY(0.2);
+  transform-origin: 50% 100%;
+  transition: opacity 180ms ease, transform var(--spring-bouncy-ms) var(--spring-bouncy);
+}
+.fine-dial.is-fine .fine-dial-comb { opacity: 1; transform: none; }
+/* The thumb: glides on a spring when set by key or double-click, follows the
+   hand exactly while dragged, squashes when grabbed, leans into fast drags
+   (--lean, set per frame from the drag speed), and wobbles upright on release. */
+.fine-dial-thumb {
+  --lean: 0;
+  position: absolute;
+  top: 50%;
+  left: var(--at);
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--surface-strong), 0 2px 8px color-mix(in srgb, var(--accent) 40%, transparent);
+  transform: translate(-50%, -50%) skewX(calc(var(--lean) * -22deg)) scaleX(calc(1 + max(var(--lean), var(--lean) * -1) * 0.55));
+  pointer-events: none;
+  transition:
+    left var(--spring-snappy-ms) var(--spring-snappy),
+    transform var(--spring-jelly-ms) var(--spring-jelly),
+    width var(--spring-jelly-ms) var(--spring-jelly),
+    height var(--spring-jelly-ms) var(--spring-jelly),
+    box-shadow 200ms ease;
+}
+.fine-dial-rail:hover .fine-dial-thumb { width: 14px; }
+/* grabbed: glide to the pointer, squash, and lean with no lag */
+.fine-dial.is-held .fine-dial-thumb {
+  width: 20px;
+  height: 9px;
+  transition: left var(--spring-snappy-ms) var(--spring-snappy), width 240ms var(--spring-snappy), height 240ms var(--spring-snappy), box-shadow 200ms ease;
+}
+.fine-dial.is-dragging .fine-dial-thumb { transition: width 240ms var(--spring-snappy), height 240ms var(--spring-snappy), box-shadow 200ms ease; }
+.fine-dial.is-dragging .fine-dial-fill { transition: none; }
+/* scrubbing finely, the thumb narrows to a needle */
+.fine-dial.is-fine .fine-dial-thumb { width: 2px; height: 18px; box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 55%, transparent); }
+.sound-panel .fine-dial-rail:focus-visible { outline: none; }
+.fine-dial-rail:focus-visible .fine-dial-thumb { box-shadow: 0 0 0 3px var(--surface-strong), 0 0 0 5px var(--accent); }
+
+/* ── motion ────────────────────────────────────────────────────────────── */
+
+@keyframes letter-in { from { opacity: 0; transform: translateY(0.5em) scale(0.8); } }
+@keyframes option-in { from { opacity: 0; transform: translateY(6px) scale(0.85); } }
+@keyframes pop-in { from { opacity: 0; transform: scale(0.6); } }
+@keyframes fade-out { to { opacity: 0; } }
+@keyframes tray-in { from { opacity: 0; transform: translateY(-4px); } }
+@keyframes blink { 50% { opacity: 0.25; } }
+@keyframes dots-march { to { background-position: 0 100%, 5px 100%; } }
+@keyframes charge-a { from { background-size: 0 2px, 5px 4px; } to { background-size: 100% 2px, 5px 4px; } }
+@keyframes charge-b { from { background-size: 0 2px, 5px 4px; } to { background-size: 100% 2px, 5px 4px; } }
+/* tuned: the word glows and the full bar retracts into the dotted line */
+@keyframes tuned-flash {
+  from { background-position: 100% 100%, 0 100%; background-size: 100% 2px, 5px 4px; background-color: color-mix(in srgb, var(--accent) 22%, transparent); }
+  to { background-position: 100% 100%, 0 100%; background-size: 0 2px, 5px 4px; background-color: transparent; }
+}
+@keyframes pill-land {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.06, 0.88); }
+  100% { transform: scale(1); }
+}
+@keyframes refuse {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px) rotate(-2deg); }
+  45% { transform: translateX(4px) rotate(2deg); }
+  70% { transform: translateX(-2px); }
+}
+@keyframes notch-click {
+  0% { transform: scaleY(1); }
+  30% { transform: scaleY(2.4); }
+  100% { transform: scaleY(1); }
+}
+@keyframes die-roll { from { transform: rotate(-270deg) scale(0.7); } }
+@keyframes die-tumble { to { transform: rotate(360deg); } }
+
+@media (max-width: 640px) {
+  .stations { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); justify-self: stretch; }
+  .station { padding-inline: 0.5rem; }
+  .station.is-yours { grid-column: 1 / -1; justify-content: center; }
+  .fine-dials { grid-template-columns: minmax(0, 1fr); gap: 0.9rem; }
+  .sound-foot { flex-wrap: wrap; }
+  .sound-foot-actions { gap: 1rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sound-panel *, .sound-panel *::before, .music-panel .play-key { animation: none !important; transition-duration: 0.01ms !important; }
+}
+
+/* Short, interaction-driven motion stays in low power; the loops stop. */
+html.low-power .word:hover,
+html.low-power .reroll.is-rolling .die,
+html.low-power .panel-state.is-tuning::before {
+  animation: none;
+}

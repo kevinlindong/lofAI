@@ -36,12 +36,12 @@ function useRadioState() {
   const streamRef = useRef<MrtStream | null>(null)
   const previousVolume = useRef(100)
 
-  const selectStation = (station: string, overrides: Partial<RadioControls> = {}) => {
+  const selectStation = useCallback((station: string) => {
     const preset = STATION_PRESETS.find((entry) => entry.id === station)
     if (!preset) return
-    setControls({ ...controls, ...overrides, station, customPrompt: "", recipe: undefined })
+    setControls((current) => ({ ...current, station, customPrompt: "", recipe: undefined }))
     setSoundDraft((draft) => ({ ...draft, mode: "builder", recipe: preset.recipe }))
-  }
+  }, [])
 
   useEffect(() => {
     // The governor turns on low-power rendering when the model is short of

@@ -30,7 +30,13 @@ See [the streaming design note](docs/MUSIC_STREAMING.md) for the full MRT2 pipel
 
 The interface is served at `/` (and `/1`): the radio, cat, tasks, timer, and color themes.
 
-**Shape your sound** starts from a preset, then lets you choose up to three instruments, one vibe, one mood, and up to two effect textures. **Write a prompt** accepts up to 120 characters, with scene suggestions and an option to start from the builder's mix. Presets tune immediately; custom edits stay in a draft until **Apply sound** or **Use prompt** (also Cmd/Ctrl+Enter). Effects describe textures for generation. Drafts survive switching input modes. **Fine-tune the flow** holds the live style-match and variation dials. Keyboard shortcuts are **Space** for play/pause, **M** for mute, and **N** for a new take, outside interactive controls.
+The music lives in one panel under the visualizer:
+
+- **Stations** sit in one row. A pill slides to the one playing, stretching toward it and landing with a small squash; when the sound is your own, a *your mix* stop appears at the end.
+- A **sentence** describes the sound ("Mellow lo-fi beats, played on jazz guitar, with drums, and nothing extra."). Tap any underlined word to swap it: one mood, one style, up to three instruments (a fourth pick replaces the first), and up to two textures. The options spring in, and a choice fills outward from its dot; the last instrument shakes rather than leave. Edits tune in on their own after a short pause, shown as the edited word's underline filling up, so a few quick picks become one style change. New words arrive a letter at a time. The drums word toggles immediately. **Write it yourself** swaps the sentence for up to 120 characters of your own words, applied with Enter.
+- Three **fine dials** set style match, variation, and volume. The thumb squashes when grabbed, leans into fast drags, and wobbles upright when let go; a coarse drag clicks into the neutral middle. Drag away from the line to scrub finely (a quarter, then a tenth of the speed; Shift also slows it), use the arrow keys for single steps, and double-click style match or variation to return to neutral.
+
+**New take** rerolls the same sound; its die tumbles through faces until the new take arrives. Keyboard shortcuts are **Space** for play/pause, **M** for mute, and **N** for a new take, outside interactive controls.
 
 The interface keeps the dot-matrix artwork and a real 5x7 dot matrix face for the ambient marks. Each of its six color themes drives the same eight-step dot ramp (`--dot-0` to `--dot-7`), which is what the two canvases paint with.
 

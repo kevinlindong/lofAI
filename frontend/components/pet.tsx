@@ -350,11 +350,14 @@ export function Pet({ signal, focus, playing, getLevel }: PetProps) {
       let pat = 0
 
       if (reaction) {
-        const t = (now - reaction.start) / HOLD_MS[reaction.kind]
+        // the frame's timestamp can precede a reaction that arrived during
+        // the same frame, so elapsed time starts at zero rather than below it
+        const elapsed = Math.max(0, now - reaction.start)
+        const t = elapsed / HOLD_MS[reaction.kind]
         // reactions are shaped in seconds, not in fractions of their hold: a
         // twitch is a twitch whether the pose it interrupts lasts half a
         // second or three
-        const secs = (now - reaction.start) / 1000
+        const secs = elapsed / 1000
         if (t >= 1) {
           reactionRef.current = null
         } else if (reaction.kind === "add" || reaction.kind === "undo") {

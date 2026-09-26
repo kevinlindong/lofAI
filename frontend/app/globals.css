@@ -926,17 +926,6 @@
     line-height: 1.5;
   }
 
-  .music-control-layout {
-    display: flex;
-    flex: 1 1 auto;
-    min-height: 0;
-    flex-direction: column;
-    align-items: center;
-    justify-content: space-between;
-    gap: clamp(0.9rem, 1.8vw, 1.4rem);
-    padding-top: 0.5rem;
-  }
-
   .visualizer-stage {
     position: relative;
     display: flex;
@@ -1007,17 +996,6 @@
     text-overflow: ellipsis;
     text-transform: uppercase;
     white-space: nowrap;
-  }
-
-  .control-bank {
-    display: grid;
-    width: min(100%, 25rem);
-    gap: clamp(0.7rem, 1.4vw, 1.1rem);
-    padding: clamp(0.85rem, 1.6vw, 1.15rem) clamp(0.9rem, 1.6vw, 1.2rem);
-    border: 1px solid var(--line-color);
-    border-radius: 1.35rem;
-    background: color-mix(in srgb, var(--surface-strong) 76%, transparent);
-    box-shadow: var(--shadow-soft);
   }
 
   .flow-range-shell {
@@ -1247,14 +1225,6 @@
     flex: 0 1 auto;
   }
 
-  .music-card {
-    min-height: 43rem;
-  }
-
-  .music-control-layout {
-    min-height: 34rem;
-  }
-
   .side-stack {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1279,12 +1249,7 @@
   }
 
   .music-card {
-    min-height: 39rem;
     padding: 1.1rem;
-  }
-
-  .music-control-layout {
-    min-height: 33rem;
   }
 
   .side-stack {

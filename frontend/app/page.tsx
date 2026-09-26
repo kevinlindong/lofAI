@@ -9,11 +9,7 @@ import { TodoList } from "@/components/todo-list"
 import { useRadio } from "@/components/radio-provider"
 
 export default function LofiGenerator() {
-  const {
-    controls, setControls, volume, setVolume, wantsAudio, streamState,
-    petSignal, focusMode, setFocusMode, isLive, togglePlayback,
-    requestVariation, getLevel, getSpectrum, handlePetEvent, label,
-  } = useRadio()
+  const { petSignal, focusMode, setFocusMode, isLive, getLevel, handlePetEvent } = useRadio()
 
   return (
     <main className="site-shell">
@@ -31,19 +27,7 @@ export default function LofiGenerator() {
               </div>
               <p className="card-note hidden sm:block">A live soundtrack that changes with you.</p>
             </div>
-            <MusicControls
-              isPlaying={wantsAudio}
-              togglePlayback={togglePlayback}
-              requestVariation={requestVariation}
-              variationPending={streamState.variationPending}
-              controls={controls}
-              setControls={setControls}
-              volume={volume}
-              setVolume={setVolume}
-              statusLabel={label}
-              isLive={isLive}
-              getSpectrum={getSpectrum}
-            />
+            <MusicControls />
           </section>
 
           <div className="side-stack">
