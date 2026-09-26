@@ -199,8 +199,9 @@ class MusicControls:
         takes stable, and a listener should not be able to dial the stream into
         a self-fed hiss bed.
         """
-        # adherence 0..1 -> cfg multiplier ~0.85..1.30 (higher = more faithful)
-        cfg_scale = 0.85 + self.adherence * 0.45
+        # adherence 0..1 -> cfg multiplier ~0.85..1.30 (higher = more faithful),
+        # times the station's own guidance factor (styles.Station.guidance)
+        cfg_scale = (0.85 + self.adherence * 0.45) * styles.station_guidance(self.station)
         # variation 0..1 -> temperature multiplier ~0.80..1.20
         temperature_scale = 0.80 + self.variation * 0.40
         return {

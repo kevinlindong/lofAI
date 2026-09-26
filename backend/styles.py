@@ -67,6 +67,11 @@ class Station:
     bpm: int
     groove: float
     intensity: float
+    # Multiplies MusicCoCa guidance for this station. Sparse stations leave
+    # the model's own feedback the most room to grow a hiss bed between
+    # notes, and stronger guidance slows that; it would also push "dusty"
+    # textures harder on stations whose prompt asks for them.
+    guidance: float = 1.0
 
 
 STATIONS: dict[str, Station] = {
@@ -89,6 +94,11 @@ STATIONS: dict[str, Station] = {
         68,
         0.40,
         0.28,
+        # 1.25x (MusicCoCa CFG 5.0 at the defaults): on 8-minute takes under
+        # the clean-anchor guard this halved the splices it needed (0 vs 2
+        # and 3 vs 6 on two seeds) and cut the worst floor by up to 10 dB.
+        # The same boost on dusty-beats doubled its splices instead.
+        guidance=1.25,
     ),
     "jazz-cafe": Station(
         "jazz-cafe",
@@ -143,6 +153,27 @@ def normalize_station(station: str | None) -> str:
     if station == CUSTOM_STATION:
         return CUSTOM_STATION
     return station if station in STATIONS else DEFAULT_STATION
+
+
+# Words that ask MusicCoCa for recording texture - the sound editor's "vinyl
+# crackle", "warm tape" and "soft rain" effects, or a typed prompt. When a
+# listener asks for texture, the hiss filter stands aside rather than
+# removing exactly what was requested.
+NOISE_TEXTURE_WORDS = ("vinyl", "crackle", "tape", "rain", "hiss", "static", "noise")
+
+
+def requests_noise_texture(prompt: str | None) -> bool:
+    """Whether a style prompt explicitly asks for a noise-like texture."""
+    if not prompt:
+        return False
+    words = prompt.lower()
+    return any(word in words for word in NOISE_TEXTURE_WORDS)
+
+
+def station_guidance(station: str | None) -> float:
+    """MusicCoCa guidance multiplier for a station; 1.0 for custom prompts."""
+    preset = STATIONS.get(station) if station else None
+    return preset.guidance if preset is not None else 1.0
 
 
 def station_defaults(station: str | None) -> Station:

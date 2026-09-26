@@ -86,11 +86,14 @@ the real-time hot loop.
 | `frontend/public/mrt-pcm-worklet.js` | Consume interleaved PCM through one bounded ring and continuous audio-thread cursor |
 | `backend/server.py` | Validate messages and bridge PCM through a bounded per-socket outbox |
 | `backend/session_manager.py` | Admit one live listener on this machine, pace chunks, and own the sole model thread |
-| `backend/session.py` | Hold one recurrent state/seed and turn station changes into short style ramps |
-| `backend/take_health.py` | Watch each take's quiet-moment floor and detect a self-amplifying hiss bed; provide the crossfade splice |
+| `backend/session.py` | Hold one recurrent state/seed, turn station changes into short style ramps, and keep the take's clean-anchor memory |
+| `backend/take_health.py` | Watch each take's quiet-moment floor: an early `rising` signal, the sustained `drifted` backstop, and which stretches are clean enough to remember; provide the crossfade splice |
 | `backend/engine.py` | Load MRT2, cache conditioning, render frames, measure speed, and tune codec depth |
 | `backend/fast_engine.py` | Specialize the pinned magenta-rt streaming step: sliced logits, cached conditioning encoding, hoisted constants, clean RVQ truncation |
-| `backend/compiled_engine.py` | Render a chunk as tokens first, then one batched codec call; trace both halves with `mx.compile`; keep session state detached from chunk activations |
+| `backend/compiled_engine.py` | Render a chunk as tokens first, then one batched codec call; trace both halves with `mx.compile`; keep session state detached from chunk activations; teacher-force a standby state through known tokens (`_Primer`) |
+| `backend/hiss_filter.py` | Remove the stationary hiss floor, whistles, and high ringing from each delivered stream |
+| `backend/style_embedder.py` | Embed new custom prompts in a short-lived child process so the model thread never waits on MusicCoCa |
+| `frontend/lib/render-budget.ts` | Switch the page to low-power rendering when the backend reports it is short of headroom |
 | `backend/style_tokens.py` | NumPy replica of MusicCoCa's RVQ tokenizer, verified against TFLite, so the interpreters can be released after startup |
 | `backend/styles.py` | Define the four listener-facing MusicCoCa prompts and optional audio references |
 
@@ -535,6 +538,202 @@ browser crossed its playback bank at 616 ms, the largest packet interval was
 1.20x measured render speed. A separate 30-second run with two station changes
 and a drum change produced 30.3 seconds of audio in 30.2 seconds, held roughly
 1.17x render speed, and likewise kept the simulated reservoir above zero.
+
+## Long takes, second pass: re-priming from clean memory
+
+The guard above is reactive, and a listener still heard the static. This pass
+re-measured the problem offline on the live path (`ChunkRenderer`, compiled
+step, batched codec) with 8-minute renders, reporting the 5-20 kHz level of
+each 30-second window's quietest decile of 50 ms blocks.
+
+**It is the model, not this pipeline.** The stock library step (no fast
+engine, no fast sampler, no compile, per-frame codec) drifted too: -67 to
+-51 dBFS by 1.5 minutes on rainy-piano. Three implementation suspects were
+ruled out directly. MRT2 has no positional encoding at all (NoPE,
+`use_rope=False`), and `mx.fast.rope` would hold bf16-level error out to
+90,000 frames anyway. The load-time warning about
+`decoder.embedder.layers.1._scale` is the constant sqrt(d_model) embedding
+scale, not a trained weight. The codec is a finite-receptive-field causal
+decoder with no recurrent state to accumulate. Upstream's C++ runner has no
+runtime counter-measure either; its design note credits attention sinks with
+suppressing "ringing and feedback" in long generation, which is the failure
+seen here.
+
+**What the bed is.** On the 10-codebook runaway the quiet-block spectrum grew
+a stationary 8-15.5 kHz hump about 25 dB above the take's opening, present
+under the music as well as between notes. Other takes grew narrow whistles
+(3.3 and 5.25 kHz; 10.0, 11.9 and 13.7 kHz) that are re-excited with the
+music rather than stationary. Fewer codebooks drift sooner: the same take
+reached -42 dBFS at 2.5 minutes with 10 codebooks against 6.5 minutes with 12,
+so a machine the tuner holds at its floor is also the one that hisses first.
+
+**What did not work.**
+
+| Attempt | Result |
+|---|---|
+| Cooler sampling for deep RVQ levels (x1.0 down to x0.6) | still reached -38 to -40 dBFS |
+| Mean embedding instead of code 0 for skipped levels in the history | marginal delay, same runaway |
+| Output-stage noise suppression (minimum statistics, relative to the take's own baseline) | transparent on clean audio, but only 4-6 dB off the hump and nothing off the whistles |
+| Denoise the last 20 s, re-encode with the SpectroStream encoder, prime a fresh state | the runaway held near -53 to -58 dBFS instead of -42, but content above 10 kHz fell below the take's own opening |
+
+**What works: continuing from clean memory.** A fresh state teacher-forced
+through the take's *own sampled tokens* from a verified-clean stretch is the
+state the model had after playing that stretch, so it continues the same
+music with no hiss in its memory. Re-priming every 48 seconds from the take's
+opening held the floor flat for the whole render:
+
+| Take | Unguarded | Re-primed from its clean opening |
+|---|---:|---:|
+| rainy-piano, no drums, 10 codebooks | -72 to -42 dBFS by 2.5 min, then -55 to -59 | -65 to -71 throughout |
+| rainy-piano, no drums, 12 codebooks | -68 to -42/-50 from 2 min | -62 to -68 throughout |
+
+Priming needs no depth loop and no codec - only the temporal transformer, so
+it runs compiled at 2.5-3 ms per frame on the M3 Pro (about 1.2-1.5 s for the
+490 frames that fill mrt2_small's ~19.7 s receptive field). Batched
+(multi-frame) temporal steps do not reproduce frame-by-frame state in
+sequence_layers, so it is sequential.
+
+The live policy (`session_manager._guard_take`):
+
+- `Session` records each chunk's sampled frames. Whenever the most recent
+  19.6 s under one unchanged conditioning has a quiet-block high band within
+  3 dB of the take's baseline and below -62 dBFS, it joins a pool of the four
+  cleanest such anchors. A re-prime uses the cleanest, preferring the most
+  recent among those within 1.5 dB of it. Anchors taken from the latest clean
+  stretch alone re-drifted within half a minute; the cleanest held.
+- `TakeFloorMonitor.rising` - a 6 dB rise over the baseline, at least
+  -66 dBFS, held for 10 seconds - starts priming a standby state. The worker
+  advances it only while no stream is due, in slices sized from the measured
+  per-frame cost to finish before the next chunk is, so no listener waits for
+  it; on a machine with no slack it simply does not progress. When it is ready the next chunk is rendered from both states
+  and crossfaded; the monitor keeps its baseline and restarts its trailing
+  window. If the floor settled while the standby was prepared, the standby is
+  dropped instead of jumping.
+- A floor that keeps coming back backs the re-primes off (45, 90, 180,
+  360 s), since brushed drums getting busier read much like hiss; an
+  abandoned standby (timed out after 20 s of rendered audio, or failed)
+  counts as an attempt, so a machine with no slack cannot restart it forever. During a
+  back-off, a sustained `drifted` takes the fresh-state splice, which
+  re-learns the baseline. The fresh state also remains the fallback with no
+  clean anchor, after a station change on a rising floor, or when priming
+  cannot finish within 20 s because the machine has no slack.
+
+With that policy, and the same session seed as the current guard:
+
+| 8-minute take | Worst 30 s window | Typical | Splices |
+|---|---:|---:|---:|
+| rainy-piano, no drums, 10 cb, previous guard | -54.0 dBFS | about -63 | 1 fresh |
+| same, re-prime, CFG 4.0 | -57.3 | about -65 | 6 |
+| same, re-prime, CFG 5.5 | -56.6 | about -65 | 3 + 1 fresh |
+| rainy-piano, drums, 12 cb, re-prime, CFG 4.0 | -46.5 | about -62 | 4 + 2 fresh |
+| same, re-prime, CFG 5.5 | -56.2 | about -62 | 3 |
+
+Stronger MusicCoCa guidance slows how quickly a bed regrows on the sparse
+station, so it needs fewer splices - each one a short jump in the music. It
+is not a universal lever, which is why it is per station:
+
+| 8-minute take, final policy | CFG 4.0 (4.3 at the neutral dial) | CFG 5.0 (5.4) |
+|---|---|---|
+| rainy-piano, no drums, seed 888, 12 cb | 2 splices, worst -58.8 dBFS | 0 splices, worst -63.0 |
+| rainy-piano, no drums, seed 777, 10 cb | 4 splices, worst -56.5 | 3 splices, worst -55.3 before the first |
+| dusty-beats, drums, 12 cb | 2 splices, worst -57.8 | 4 + 1 fresh, worst -55.0 |
+
+Pushing "dusty drums" harder makes the texture that prompt asks for dustier.
+The global default stays 4.0 and Rainy Piano carries `guidance=1.25` in
+`backend/styles.py`. `MRT_TAKE_REPRIME=0` restores the fresh-state-only guard,
+`MRT_ANCHOR_SECONDS` shortens the memory, and `/health` reports
+`takeReprimes` per session.
+
+## Long takes, third pass: remove the bed the listener hears
+
+A listener still heard static that grew. Two things let it through. The guard
+is relative: it acts on a rise over the take's own opening and returns a take
+only to that level, while a lo-fi take's opening already carries an audible
+bed (every station and sound-editor vibe says "lo-fi", and the editor's
+effects add "vinyl crackle", "warm tape", "soft rain"). And a station or
+custom-mix change re-learned that reference from a state already drifting, so
+the guard stood down exactly when the bed grew fastest: recording the audio
+actually delivered (`MRT_RECORD_DIR`), a switch to a custom mix crept from
+-84 to -70 dBFS in three minutes with no repair.
+
+**The filter.** `backend/hiss_filter.py` processes every stream after the
+guard (which keeps watching the raw model output). Above 2-3.5 kHz:
+
+- each bin's floor is the 20th percentile of its power over three seconds,
+  and a decision-directed Wiener gain (floor -20 dB) removes it; notes, hats
+  and brushes sit far above that percentile and pass;
+- bins whose three-second median stands 18 dB over their neighbourhood
+  above 4 kHz - the model's fixed-pitch whistles (5.25, 8.4, 3.3 kHz
+  measured) - use the median as their floor and may be cut 35 dB;
+- above 13 kHz the median sets the floor, and above 12 kHz each frame's
+  narrow peaks are clipped to 8 dB over the local envelope, for the pulsing
+  comb of 15-18 kHz whistles that rings in with each hat.
+
+| Take (8 min, raw model output) | Quiet 5-13 kHz | Loud 5-13 kHz | Quiet 13-20 kHz | Loud 13-20 kHz |
+|---|---|---|---|---|
+| dusty-beats | -60.0 -> -76.3 | -41.9 -> -42.5 | -64.1 -> -83.1 | -54.7 -> -57.0 |
+| dusty-beats, second seed | -62.7 -> -81.9 | -33.4 -> -33.6 | -71.6 -> -91.1 | -40.2 -> -40.3 |
+| sunlit-groove | -67.1 -> -81.3 | -47.1 -> -47.5 | -80.1 -> -97.8 | -61.1 -> -61.7 |
+| rainy-piano runaway | -65.2 -> -82.1 | -30.0 -> -30.1 | -70.4 -> -89.9 | -39.4 -> -40.6 |
+
+It costs about 6 ms of NumPy per 400 ms chunk on the M3 Pro and one 21 ms
+hop of latency. When a prompt asks for rain, vinyl, tape, hiss, static or
+noise, it stands aside. `MRT_HISS_FILTER=0` disables it.
+
+**The guard across style changes.** `TakeFloorMonitor.relearn_baseline`
+keeps the old reference judging while the new style's is learned, and the
+take keeps the lower of the two. A busier station can therefore cost one
+fresh-state splice; a bed carried across cannot become the new normal. On
+the same switch to a custom mix, the delivered floor then stayed between
+-76 and -91 dBFS for six minutes, with two re-primes and one fresh splice.
+
+**Stall on a new prompt.** The first custom prompt after warm-up rebuilds
+MusicCoCa's text encoder, which holds the GIL for 580 ms and froze the model
+thread even from another thread (the listener heard gaps at 4x real time).
+New text prompts are now embedded in a short-lived child process
+(`backend/style_embedder.py`, 6 ms worst stall on the model thread, identical
+embeddings) while the current style keeps playing; the child exits after a
+minute idle, returning its memory.
+
+## Resource budget on an 8GB M1 Air
+
+The M1 Air was not available; these were measured on the M3 Pro (18 GB) with
+other work on the host, so absolute numbers carry about +/-20% noise.
+
+- **Chunk length.** The batched codec's cost per frame and its transient
+  memory both depend on chunk length:
+
+  | Frames per call | Codec ms/frame (compiled) | Transient peak |
+  |---:|---:|---:|
+  | 1 | 9.5 | +211 MB |
+  | 5 | 3.3 | +355 MB |
+  | 10 | 2.7 | +534 MB |
+  | 20 | 2.2 | +870 MB |
+
+  Twenty frames would save about 0.5 ms per frame for 336 MB more churn every
+  chunk on an 8 GB machine, so ten stays.
+- **Four-bit weights are not a speed lever on MLX 0.32.2**: 31 ms per frame
+  against 11 at 8-bit, even with the codec left in float32. They only save
+  memory.
+- **Garbage collection.** Loading leaves about 268,000 long-lived Python
+  objects; a full collection took 37 ms on the M3 Pro, on the model thread,
+  at arbitrary moments. `gc.freeze()` after warm-up leaves the collector only
+  per-frame objects.
+- **The frontend is a static export.** One file server
+  (`frontend/static_server.py`) at about 23 MB replaces
+  `next start` and its workers (about 355 MB RSS, 199 MB footprint).
+- **The page yields to the model.** The two canvases cost about 4 ms of main
+  thread per frame at 60fps on the M3 Pro, plus Chrome's rasterization and a
+  full-screen backdrop blur recomputed under every animated frame - all on
+  the same GPU and memory bus as MLX. The cat now paints at 30fps. When the
+  backend reports under 1.45x real time, a reduced codec depth, a reservoir
+  held low for three seconds, or a gap, the page enters low power
+  (visualizer 30fps, cat 20fps, no trail, no backdrop blur or decorative CSS
+  motion) and leaves only after 90 s at 1.7x with full depth and two minutes
+  in low power.
+- **Opt-in residency.** `MRT_WIRED_LIMIT_MB` (macOS 15+) keeps the model's
+  MLX memory wired so swap pressure from the browser cannot page it out
+  mid-stream; about 1100 MB covers a rendering chunk.
 
 ## Why not use the official native runner yet?
 

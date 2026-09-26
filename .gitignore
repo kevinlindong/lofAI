@@ -12,6 +12,7 @@ venv/
 
 # Frontend - Next.js
 frontend/.next/
+frontend/out/
 frontend/node_modules/
 frontend/tsconfig.tsbuildinfo
 frontend/.env.local

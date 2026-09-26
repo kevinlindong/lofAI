@@ -209,7 +209,7 @@ discover_project_processes() {
                 next-*|next-server) matched=1 ;;
             esac
             case "$command" in
-                *"/node_modules/.bin/next "*|*"/next/dist/compiled/jest-worker/processChild.js"*|*"npm run dev"*|*"npm run start"*|*"npm run build"*)
+                *"/node_modules/.bin/next "*|*"/next/dist/compiled/jest-worker/processChild.js"*|*"npm run dev"*|*"npm run start"*|*"npm run build"*|*"static_server.py --port "*)
                     matched=1
                     ;;
             esac

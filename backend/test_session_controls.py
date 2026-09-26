@@ -99,6 +99,36 @@ class SessionControlTests(unittest.TestCase):
         self.assertIn("muted trumpet", session._active_prompt)
         self.assertIn("bright upbeat", plan[-1].key)
 
+    def test_an_unembedded_prompt_waits_without_stalling_the_stream(self):
+        class SlowEmbedEngine(PlanEngine):
+            def __init__(self):
+                self.ready_prompts = set()
+                self.prefetched = []
+
+            def embedding_ready(self, prompt, _reference=None):
+                return prompt in self.ready_prompts
+
+            def prefetch_embedding(self, prompt, _reference=None):
+                self.prefetched.append(prompt)
+
+        session = Session("async-embed", "neutral", "guitar", station="dusty-beats")
+        engine = SlowEmbedEngine()
+        session.conditioning_plan(engine, 10)
+        before = session._active_prompt
+        session.request_controls({"customPrompt": "rainy tokyo night"})
+
+        # Not embedded yet: the current style keeps playing, and the new
+        # prompt goes to the background embedder once.
+        session.conditioning_plan(engine, 10)
+        session.conditioning_plan(engine, 10)
+        self.assertEqual(session._active_prompt, before)
+        self.assertTrue(engine.prefetched)
+        self.assertTrue(all("rainy tokyo night" in p for p in engine.prefetched))
+
+        engine.ready_prompts.add(engine.prefetched[-1])
+        session.conditioning_plan(engine, 10)
+        self.assertIn("rainy tokyo night", session._active_prompt)
+
     def test_drum_mute_applies_on_the_next_chunk(self):
         session = Session("drum-mute", "neutral", "guitar")
         engine = PlanEngine()

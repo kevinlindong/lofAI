@@ -184,6 +184,7 @@ class ChunkRenderer:
         )
         self._step_fns: dict = {}
         self._codec_fns: dict = {}
+        self._prime_fns: dict = {}
         self._compile_step = False
         self._compile_codec = False
         if compile_enabled:
@@ -257,6 +258,59 @@ class ChunkRenderer:
         fn = mx.compile(traced)
         self._step_fns[key] = fn
         self.status.traces["step"] = len(self._step_fns)
+        return fn
+
+    # --- teacher-forced priming ---
+
+    def primer(self, state, block, encoded, constants, tokens) -> "_Primer":
+        """Prepare to force ``state`` through known token frames ``[N, Q]``."""
+        return _Primer(self, state, block, encoded, constants, tokens)
+
+    def _prime_fn(self, key, state_skeleton, constants_skeleton, encoded_type):
+        fn = self._prime_fns.get(key)
+        if fn is not None:
+            return fn
+        mx, sl, layer0 = self.mx, self.sl, self.layer0
+        state_leaves = leaf_count(state_skeleton)
+        decoder = layer0.decoder
+        conditioning_name = layer0.conditioning_name
+        from magenta_rt.mlx.depthformer import _mean_in_f32
+
+        def traced(enc_values, enc_mask, forced, *leaves):
+            # The temporal half of the specialized step with the depth loop
+            # replaced by the known frame: embed the previous frame, advance
+            # the temporal transformer, and hold ``forced`` as the frame the
+            # next step will embed. Mirrors MultivariateDecoder's own
+            # forced_tokens branch, which never runs the depth body either.
+            state = rebuild(state_skeleton, leaves[:state_leaves])
+            constants = rebuild(constants_skeleton, leaves[state_leaves:])
+            encoder_state, _previous_output, sampler_state, delay = state
+            rng, previous_frame, temporal_state, step_count = sampler_state
+            sampler_constants = dict(constants)
+            sampler_constants[conditioning_name] = encoded_type(enc_values, enc_mask)
+            embedded = decoder.embedder.layer(previous_frame)
+            temporal_inputs = embedded.apply_values(_mean_in_f32, axis=-2)
+            _outputs, temporal_state = decoder.temporal_body.step(
+                temporal_inputs,
+                temporal_state,
+                training=False,
+                constants=sampler_constants,
+            )
+            frame = sl.Sequence.from_values(forced)
+            new_state = (
+                encoder_state,
+                frame,
+                (rng, frame, temporal_state, step_count + 1),
+                delay,
+            )
+            new_leaves, new_skeleton = flatten(new_state, mx)
+            if new_skeleton != state_skeleton:
+                raise SkeletonMismatch("depthformer state changed shape while priming")
+            return tuple(new_leaves)
+
+        fn = mx.compile(traced)
+        self._prime_fns[key] = fn
+        self.status.traces["prime"] = len(self._prime_fns)
         return fn
 
     def _disable_step_compile(self, reason: str):
@@ -417,3 +471,105 @@ class _Stepper:
         if self.leaves is not None:
             return rebuild(self.skeleton, self.leaves)
         return self.state
+
+
+class _Primer:
+    """Teacher-forces a depthformer state through known token frames.
+
+    A state primed through the tokens of an earlier stretch of a take is the
+    state the model had after playing it, so generation resumes as a
+    continuation of that stretch. Work is resumable in slices, letting the
+    worker spend idle time between chunks on it rather than stalling a
+    stream; each frame costs the temporal transformer only, no depth loop
+    and no codec. Compiled like the sampling step when possible, with the
+    library's own ``forced_tokens`` step as the eager fallback.
+    """
+
+    def __init__(self, renderer: ChunkRenderer, state, block, encoded, constants, tokens):
+        mx = renderer.mx
+        self.renderer = renderer
+        self.mx = mx
+        self.block = block
+        self.encoded = encoded
+        self.constants = constants
+        # Live sampled frames are uint32 (an argmax); forcing the same dtype
+        # keeps the primed state on the live step's compiled signature.
+        self.tokens = mx.array(tokens, dtype=mx.uint32)
+        self.total = int(self.tokens.shape[0])
+        self.position = 0
+        self.codec_state = tuple(state[1:])
+        self.state = state[0]
+        self.leaves = None
+        self.skeleton = None
+        self.constants_leaves = None
+        self.constants_skeleton = None
+        if renderer._compile_step and encoded is not None:
+            self.leaves, self.skeleton = flatten(self.state, mx)
+            self.constants_leaves, self.constants_skeleton = flatten(constants, mx)
+
+    @property
+    def done(self) -> bool:
+        return self.position >= self.total
+
+    def advance(self, frames: int) -> bool:
+        """Force up to ``frames`` more frames; returns whether priming is done."""
+        mx = self.mx
+        stop = min(self.total, self.position + max(1, int(frames)))
+        while self.position < stop:
+            forced = self.tokens[self.position][None, None, :]
+            if self.leaves is not None:
+                key = (self.skeleton, self.constants_skeleton, type(self.encoded))
+                try:
+                    fn = self.renderer._prime_fn(
+                        key, self.skeleton, self.constants_skeleton, type(self.encoded)
+                    )
+                    self.leaves = list(
+                        fn(
+                            self.encoded.values,
+                            self.encoded.mask,
+                            forced,
+                            *self.leaves,
+                            *self.constants_leaves,
+                        )
+                    )
+                    mx.async_eval(*self.leaves)
+                    self.position += 1
+                    continue
+                except Exception as exc:  # noqa: BLE001 - fall back rather than fail
+                    log.warning("compiled priming disabled: %s: %s", type(exc).__name__, exc)
+                    self.state = rebuild(self.skeleton, self.leaves)
+                    self.leaves = None
+            _, self.state = self.renderer.layer0.step(
+                self.block,
+                self.state,
+                forced_tokens=forced,
+                training=False,
+                constants=self.constants,
+            )
+            self.position += 1
+        if self.leaves is not None:
+            mx.eval(*self.leaves)
+        else:
+            mx.eval(*flatten(self.state, mx)[0])
+        return self.done
+
+    def finish(self, warm_frames: int):
+        """Return the primed full sampler state, codec warmed on the last frames.
+
+        The codec is a causal convolution with a short receptive field;
+        decoding the final few forced frames settles its buffers so the
+        first generated chunk continues from the anchor's sound rather than
+        from silence. The decoded audio itself is discarded.
+        """
+        if not self.done:
+            raise RuntimeError("priming has not finished")
+        mx = self.mx
+        state = rebuild(self.skeleton, self.leaves) if self.leaves is not None else self.state
+        codec_state = self.codec_state
+        warm = min(self.total, max(0, int(warm_frames)))
+        if warm:
+            frames = self.tokens[self.total - warm :][None]
+            _pcm, codec_state = self.renderer.decode([frames], codec_state)
+        full = (state, *codec_state)
+        mx.eval(*flatten(full, mx)[0])
+        return full

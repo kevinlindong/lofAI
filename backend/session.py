@@ -8,7 +8,9 @@ import time
 import numpy as np
 
 import engine as engine_mod
+import styles
 from music_controls import MusicControls
+from hiss_filter import HissFilter
 from take_health import TakeFloorMonitor
 
 
@@ -39,6 +41,32 @@ STYLE_RAMP_SECONDS = max(
 # The finest slice of a chunk that can carry its own style. Splitting only while
 # a transition is active keeps the normal prompt path to one conditioning run.
 STYLE_STEP_FRAMES = max(1, _env_int("MRT_STYLE_STEP_FRAMES", 2))
+
+# Clean-anchor memory for long takes (see take_health). An anchor is the
+# sampled tokens of a stretch of this take whose own quiet moments were
+# verified free of hiss. The default fills mrt2_small's whole ~19.7 s
+# receptive field (12 layers x 41 frames): a shorter anchor was measured to
+# re-drift within half a minute, because the most recent "clean" stretch
+# already carried the faint start of the next hiss bed. Priming costs about
+# 2.5-3 ms per frame on an M3 Pro and runs between chunks.
+ANCHOR_SECONDS = max(4.0, min(19.6, _env_float("MRT_ANCHOR_SECONDS", 19.6)))
+ANCHOR_FRAMES = int(round(ANCHOR_SECONDS * engine_mod.FRAMES_PER_SECOND))
+# How often a newly verified stretch is considered for the pool.
+ANCHOR_INTERVAL_SECONDS = 15.0
+# The pool keeps the cleanest few stretches. A re-prime uses the cleanest,
+# preferring the most recent among those within ANCHOR_TIE_DB of it so the
+# music jumps back no further than it must.
+ANCHOR_POOL = 4
+ANCHOR_TIE_DB = 1.5
+# Re-primes are spaced at least this far apart in audio time, doubling each
+# time one is needed again within REPRIME_RETRY_SECONDS of the last (capped
+# at REPRIME_MAX_BACKOFF doublings). A floor that keeps coming back is either
+# the station genuinely getting busier (brushed drums read much like hiss) or
+# a take the memory cannot hold; either way, jumping back every minute would
+# cost more music than it saves, and the fresh-state splice takes over.
+REPRIME_MIN_INTERVAL_SECONDS = 45.0
+REPRIME_RETRY_SECONDS = 120.0
+REPRIME_MAX_BACKOFF = 3
 
 ACTIVE = "active"
 QUEUED = "queued"
@@ -146,6 +174,30 @@ class Session:
         # sustained drift, at a moment that is already a musical boundary.
         self._refresh_requested = False
 
+        # Removes the stationary hiss floor from the PCM the listener hears
+        # (hiss_filter). Worker thread only; reset at every new take.
+        self.hiss_filter = HissFilter()
+        self._hiss_filter_active = False
+
+        # Clean-anchor memory, owned by the worker thread. `_recent_tokens`
+        # holds the last ANCHOR_FRAMES sampled frames rendered under one
+        # unchanged conditioning; `anchor` is a verified-clean copy of them,
+        # and `primer` a standby state being teacher-forced through it.
+        self._recent_tokens: list[np.ndarray] = []
+        self._recent_frames = 0
+        self._recent_conditioning = None
+        # (high-band floor dB, generated seconds, tokens), cleanest few only
+        self._anchors: list[tuple[float, float, np.ndarray]] = []
+        self._anchor_conditioning = None
+        self._anchor_at = -float("inf")
+        self.primer = None
+        self.primer_seed: int | None = None
+        self.primer_started = 0.0
+        self.primer_started_audio = 0.0
+        self._reprimes = 0
+        self._last_reprime_at = -float("inf")
+        self._reprime_backoff = 0
+
         # Set by the websocket handler while a client is attached. The worker
         # supplies ``(pcm, render_epoch)`` so deferred event-loop delivery can
         # reject audio from a superseded variation.
@@ -235,6 +287,8 @@ class Session:
                 self._reset_requested = False
                 self._refresh_requested = False
                 self.floor_monitor.reset()
+                self.forget_anchor()
+                self.hiss_filter.reset()
             return self._render_epoch
 
     def next_refresh_seed(self) -> int:
@@ -258,10 +312,155 @@ class Session:
         with self._lock:
             return epoch == self._render_epoch
 
+    # --- clean-anchor memory (worker thread only) ---
+
+    @staticmethod
+    def _plan_conditioning(plan):
+        """One hashable conditioning identity for a plan, or None if it varies.
+
+        Style ramps (keyless blends) and plans that mix conditionings cannot
+        be replayed as one block, so they never become anchor memory.
+        """
+        identities = {
+            (getattr(run, "key", None), getattr(run, "drum", None)) for run in plan
+        }
+        if len(identities) != 1:
+            return None
+        identity = identities.pop()
+        return identity if identity[0] is not None else None
+
+    def note_chunk(self, tokens, plan):
+        """Record a rendered chunk's sampled frames and maybe take an anchor."""
+        conditioning = self._plan_conditioning(plan) if tokens is not None else None
+        if conditioning is None or conditioning != self._recent_conditioning:
+            self._recent_tokens = []
+            self._recent_frames = 0
+        if conditioning is not None and conditioning != self._anchor_conditioning:
+            # Memory rendered under another station or drum setting cannot
+            # continue this one.
+            self._anchors = []
+            self._anchor_conditioning = None
+            self.primer = None
+            self.primer_seed = None
+        self._recent_conditioning = conditioning
+        if conditioning is None:
+            return
+        self._recent_tokens.append(np.asarray(tokens, dtype=np.uint32))
+        self._recent_frames += len(tokens)
+        while (
+            len(self._recent_tokens) > 1
+            and self._recent_frames - len(self._recent_tokens[0]) >= ANCHOR_FRAMES
+        ):
+            self._recent_frames -= len(self._recent_tokens.pop(0))
+        if (
+            self._recent_frames >= ANCHOR_FRAMES
+            and self.generated_seconds - self._anchor_at >= ANCHOR_INTERVAL_SECONDS
+            and self.floor_monitor.recent_is_clean(ANCHOR_SECONDS)
+        ):
+            floor_db = self.floor_monitor.recent_high_floor_db(ANCHOR_SECONDS)
+            tokens = np.concatenate(self._recent_tokens)[-ANCHOR_FRAMES:]
+            self._anchors.append((floor_db, self.generated_seconds, tokens))
+            if len(self._anchors) > ANCHOR_POOL:
+                # Drop the noisiest; among equals, the oldest.
+                worst = max(self._anchors, key=lambda a: (a[0], -a[1]))
+                self._anchors.remove(worst)
+            self._anchor_conditioning = conditioning
+            self._anchor_at = self.generated_seconds
+
+    @property
+    def anchor(self) -> np.ndarray | None:
+        """Tokens of the stretch a re-prime would continue from, if any."""
+        anchors = list(self._anchors)
+        if not anchors:
+            return None
+        best = min(a[0] for a in anchors)
+        near = [a for a in anchors if a[0] <= best + ANCHOR_TIE_DB]
+        return max(near, key=lambda a: a[1])[2]
+
+    def filter_pcm(self, pcm: bytes) -> bytes:
+        """The chunk the listener hears: hiss floor removed unless requested."""
+        active = not styles.requests_noise_texture(self._active_prompt)
+        if active != self._hiss_filter_active:
+            # Switching in or out must not replay audio buffered in the filter.
+            self.hiss_filter.reset()
+            self._hiss_filter_active = active
+        return self.hiss_filter.process(pcm) if active else pcm
+
+    def restart_recent_tokens(self):
+        """Begin a new run of recent frames after a splice; the anchor stays."""
+        self._recent_tokens = []
+        self._recent_frames = 0
+        self._recent_conditioning = None
+
+    def forget_anchor(self):
+        self.restart_recent_tokens()
+        self._last_reprime_at = -float("inf")
+        self._reprime_backoff = 0
+        self._anchors = []
+        self._anchor_conditioning = None
+        self._anchor_at = -float("inf")
+        self.primer = None
+        self.primer_seed = None
+
+    def anchor_run(self, plan):
+        """The plan run a primer may use, if the anchor matches the plan."""
+        if not self._anchors:
+            return None
+        if self._plan_conditioning(plan) != self._anchor_conditioning:
+            return None
+        return plan[-1]
+
+    def reprime_allowed(self) -> bool:
+        """Whether enough audio has passed since the last re-prime."""
+        wait = REPRIME_MIN_INTERVAL_SECONDS * (2 ** self._reprime_backoff)
+        return self.generated_seconds - self._last_reprime_at >= wait
+
+    def next_reprime_seed(self) -> int:
+        with self._lock:
+            return _seed_for(f"{self.id}:reprime:{self._reprimes + 1}")
+
+    def _note_reprime_attempt(self):
+        """Space the next attempt: back off when the last one did not hold."""
+        wait = REPRIME_MIN_INTERVAL_SECONDS * (2 ** self._reprime_backoff)
+        since = self.generated_seconds - self._last_reprime_at
+        if since < wait + REPRIME_RETRY_SECONDS:
+            # Needed again soon after it was allowed: the floor is coming
+            # straight back, so wait twice as long next time.
+            self._reprime_backoff = min(REPRIME_MAX_BACKOFF, self._reprime_backoff + 1)
+        else:
+            self._reprime_backoff = 0
+        self._last_reprime_at = self.generated_seconds
+
+    def note_reprime(self, seed: int):
+        self._note_reprime_attempt()
+        with self._lock:
+            self._reprimes += 1
+            self.seed = seed
+        self.primer = None
+        self.primer_seed = None
+
+    def abandon_primer(self):
+        """Drop an unfinished or failed standby; it counts as an attempt.
+
+        Otherwise a standby that cannot finish (no idle time on this
+        machine, or a deterministic failure) would restart from frame zero
+        on the very next chunk, forever, and hold off the fresh-state splice
+        a drifted take needs.
+        """
+        self.primer = None
+        self.primer_seed = None
+        self._note_reprime_attempt()
+
+    @property
+    def reprimes(self) -> int:
+        return self._reprimes
+
     def release_state(self):
         """Release MLX-backed recurrent state; called only by the model worker."""
         with self._lock:
             self.state = None
+            self.primer = None
+            self.primer_seed = None
 
     def deliver_if_current(self, epoch: int, deliver, item) -> bool:
         """Serialize an event-loop delivery against variation resets.
@@ -354,6 +553,20 @@ class Session:
     def _activate_pending_style(self, engine):
         with self._lock:
             pending = self._pending_style
+        if pending is not None and self._current is not None:
+            # A prompt nobody has embedded yet (a new custom mix) goes to the
+            # background embedder; the current style keeps playing until it
+            # is ready rather than stalling the model thread for the second
+            # MusicCoCa's text encoder takes to rebuild.
+            ready = getattr(engine, "embedding_ready", None)
+            prefetch = getattr(engine, "prefetch_embedding", None)
+            if ready is not None and prefetch is not None and not ready(*pending):
+                prefetch(*pending)
+                return
+        with self._lock:
+            if self._pending_style != pending:
+                # A newer request replaced it while the embedder worked.
+                return
             self._pending_style = None
 
         if pending is not None:
@@ -362,14 +575,19 @@ class Session:
             self._active_reference = reference
             self._active_style_key = self._style_key(engine, prompt, reference)
             # The recurrent state - and any drift it carries - survives a
-            # station change, but the new station's own gap floor is a new
-            # normal. Re-learn the baseline rather than comparing stations.
-            # If the floor was already voting for drift, do not let the next
-            # station learn that hiss as its baseline: have the worker splice
-            # onto a fresh state at this boundary instead.
+            # station change. Learn the new station's floor, but keep the
+            # take's earlier one as a cap so a bed carried across cannot
+            # become the new normal. If the floor was already voting for
+            # drift, have the worker splice onto a fresh state at this
+            # boundary instead.
             if self.floor_monitor.suspicious:
                 self._refresh_requested = True
-            self.floor_monitor.reset()
+            relearn = getattr(self.floor_monitor, "relearn_baseline", None)
+            if relearn is not None:
+                relearn()
+            else:
+                self.floor_monitor.reset()
+            self.forget_anchor()
             if self._current is not None:
                 # ramp from wherever we are now, which may itself be mid-ramp
                 self._ramp_from = self._current
@@ -471,8 +689,11 @@ class Session:
         temperature = _clamp(
             base.temperature * overrides["temperature_scale"], 0.7, 1.3
         )
+        # A station that asks for more guidance keeps the dial's full travel,
+        # up to the 7.0 the CFG conditioning token can encode.
+        ceiling = min(7.0, 6.0 * styles.station_guidance(controls.station))
         cfg_musiccoca = _clamp(
-            base.cfg_musiccoca * overrides["cfg_musiccoca_scale"], 3.0, 6.0
+            base.cfg_musiccoca * overrides["cfg_musiccoca_scale"], 3.0, ceiling
         )
         return engine_mod.SamplingControls(
             temperature=temperature,
@@ -510,4 +731,7 @@ class Session:
             "realtimeFactor": round(self.realtime_factor(), 3),
             "gaps": self.gaps,
             "takeRefreshes": self._refreshes,
+            "takeReprimes": self._reprimes,
+            # Read from the event loop while the worker may edit the pool.
+            "cleanAnchor": bool(self._anchors),
         }

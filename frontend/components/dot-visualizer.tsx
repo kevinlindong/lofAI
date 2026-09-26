@@ -169,7 +169,9 @@ export function DotVisualizer({ getSpectrum, active, children }: DotVisualizerPr
       ctx.restore()
     }
 
-    loop = canvasLoop(canvas, draw, () => draw(0, 1, true))
+    // Low power halves the painting; the ring's damping is time-based, so
+    // it moves the same way at either rate.
+    loop = canvasLoop(canvas, draw, () => draw(0, 1, true), { fps: 60, lowPowerFps: 30 })
     return () => {
       loop?.dispose()
       themeWatch.disconnect()

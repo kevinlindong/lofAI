@@ -427,7 +427,9 @@ export function Pet({ signal, focus, playing, getLevel }: PetProps) {
       }, dt)
     }
     const resting: PetFrame = { ...IDLE_FRAME, phase: 1, swing: 0.6, breathe: 1 }
-    loop = canvasLoop(canvas, tick, () => paint(resting))
+    // The cat's motion is eased and time-based, and it reads as smoothly at
+    // 30fps on a dot matrix as at 60 - at half the painting.
+    loop = canvasLoop(canvas, tick, () => paint(resting), { fps: 30, lowPowerFps: 20 })
 
     return () => {
       loop?.dispose()

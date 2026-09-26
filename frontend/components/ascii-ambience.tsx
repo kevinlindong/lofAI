@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react"
 import { BlobSet } from "@/lib/dot-field"
 import { gridNeighbours, paintInk, type InkCells, type InkGeometry } from "@/lib/ink-render"
+import { lowPowerActive } from "@/lib/render-budget"
 
 // the page's background.
 //
@@ -291,6 +292,12 @@ export function AsciiAmbience() {
         pointerRaf = requestAnimationFrame(flush)
       }
 
+      // In low power the marks keep leaning towards the cursor, but no ink is
+      // laid: the trail is the one effect here that paints on every move.
+      if (lowPowerActive()) {
+        forget()
+        return
+      }
       const x = event.clientX
       const y = event.clientY
       if (lastX < 0) {
@@ -315,7 +322,7 @@ export function AsciiAmbience() {
     // a press pools ink under the pointer - the one deliberate mark the
     // background can make, and it evaporates like everything else
     const press = (event: PointerEvent) => {
-      if (motion.matches || document.hidden) return
+      if (motion.matches || document.hidden || lowPowerActive()) return
       emit(event.clientX, event.clientY, PRESS_R)
       wake()
     }

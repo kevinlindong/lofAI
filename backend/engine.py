@@ -179,6 +179,10 @@ class MRTEngine:
         # stable at 3.0, still stable at 4.0. CFG is encoded as conditioning
         # tokens here, so a higher scale costs no throughput. The take guard
         # remains the backstop for the takes that still drift.
+        #
+        # Sparse stations can ask for more through styles.Station.guidance;
+        # a higher global default was tried and made dusty-beats' "dusty"
+        # texture, and its splices, worse.
         self.cfg_musiccoca = _env_float("MRT_CFG_MUSICCOCA", 4.0)
         self.cfg_notes = _env_float("MRT_CFG_NOTES", 1.0)
         self.cfg_drums = _env_float("MRT_CFG_DRUMS", 1.0)
@@ -206,6 +210,13 @@ class MRTEngine:
         # actually reports buy an extra step down, which is the honest signal.
         self.target_rtf = _env_float("MRT_TARGET_RTF", 1.18)
         self.mlx_cache_mb = _env_int("MRT_MLX_CACHE_MB", 384)
+        # Opt-in: keep up to this much MLX memory wired (resident) so macOS
+        # cannot compress or page the model out from under a stream when the
+        # browser and other apps push an 8GB machine into swap. The model
+        # needs about 450MB at rest and ~1GB while rendering a chunk. Wired
+        # memory is unavailable to every other process, so this is a choice
+        # for the listener to make; 0 leaves it to the OS.
+        self.wired_limit_mb = max(0, _env_int("MRT_WIRED_LIMIT_MB", 0))
         self.fast_sampler_enabled = _env_int("MRT_FAST_SAMPLER", 1) != 0
         self.fast_engine_enabled = _env_int("MRT_FAST_ENGINE", 1) != 0
         # Trace the depthformer step and the codec with mx.compile. Removes
@@ -254,6 +265,13 @@ class MRTEngine:
             0.0, min(1.0, _env_float("MRT_AUDIO_STYLE_BLEND", 0.75))
         )
         self._load_lock = threading.Lock()
+        self._interpreter_lock = threading.RLock()
+        self._embed_lock = threading.Lock()
+        self._embed_executor = None
+        self._process_embedder = None
+        self._embed_futures: dict = {}
+        self._embed_failed: set = set()
+        self.process_embedder_enabled = _env_int("MRT_PROCESS_EMBEDDER", 1) != 0
         self._stop_requested = threading.Event()
         self.load_error: str | None = None
 
@@ -268,6 +286,9 @@ class MRTEngine:
         self._input_spec = None
         self._depth_config = None
         self._keepalive_value = None
+        # Sampled token frames of the most recent generate() call, [frames, 12]
+        # uint32, or None when the stock loop (which hides them) is in use.
+        self.last_tokens: np.ndarray | None = None
 
         # (model frames, elapsed seconds), weighted by actual audio duration
         self._costs: deque[tuple[int, float]] = deque(maxlen=COST_WINDOW)
@@ -527,6 +548,79 @@ class MRTEngine:
 
     # --- style ---
 
+    def embedding_ready(self, prompt: str, reference: str | None = None) -> bool:
+        """Whether a style can be used now without waiting on the embedder.
+
+        True once cached - or once background embedding has failed, so the
+        caller embeds it in-process rather than waiting forever.
+        """
+        key = self._embedding_key(prompt, reference)
+        return key in self._embeddings or key in self._embed_failed
+
+    def prefetch_embedding(self, prompt: str, reference: str | None = None):
+        """Embed a new prompt on the background embedder, once.
+
+        MusicCoCa runs on the CPU through TFLite and never touches MLX, so it
+        does not need the model thread; after warm-up its interpreters are
+        released, and rebuilding the text encoder for an unknown prompt takes
+        about a second - long enough to empty a listener's reservoir if the
+        model thread waited for it.
+        """
+        key = self._embedding_key(prompt, reference)
+        if key in self._embeddings or key in self._embed_failed:
+            return
+        with self._embed_lock:
+            future = self._embed_futures.get(key)
+            if future is not None and not future.done():
+                return
+            if reference is None and self.process_embedder_enabled:
+                # Rebuilding the text encoder holds the GIL for over half a
+                # second, so a thread is not enough: embed in a child process
+                # (style_embedder), which also keeps the interpreter's memory
+                # out of this one.
+                if self._process_embedder is None:
+                    from style_embedder import ProcessEmbedder
+
+                    self._process_embedder = ProcessEmbedder()
+                future = self._process_embedder.submit(prompt)
+                future.add_done_callback(
+                    lambda done, key=key: self._store_embedding(key, done)
+                )
+            else:
+                if self._embed_executor is None:
+                    from concurrent.futures import ThreadPoolExecutor
+
+                    self._embed_executor = ThreadPoolExecutor(
+                        max_workers=1, thread_name_prefix="musiccoca"
+                    )
+                future = self._embed_executor.submit(
+                    self._embed_in_background, prompt, reference
+                )
+            self._embed_futures[key] = future
+
+    def _store_embedding(self, key, future):
+        try:
+            embedding = np.asarray(future.result(), dtype=np.float32)
+            if embedding.shape != (768,) or not np.isfinite(embedding).all():
+                raise ValueError(f"unexpected embedding shape {embedding.shape}")
+        except Exception as exc:  # noqa: BLE001 - fall back to in-process embedding
+            log.warning("background embedding of %r failed: %s", key[0], exc)
+            self._embed_failed.add(key)
+            return
+        self._embeddings[key] = embedding
+
+    def _embed_in_background(self, prompt: str, reference: str | None):
+        try:
+            self.embed(prompt, reference)
+        except Exception:  # noqa: BLE001 - the worker will embed it itself
+            log.exception("background embedding failed for %r", prompt)
+            self._embed_failed.add(self._embedding_key(prompt, reference))
+
+    @staticmethod
+    def _embedding_key(prompt: str, reference: str | None):
+        reference_key = str(Path(reference).expanduser().resolve()) if reference else None
+        return (prompt, reference_key)
+
     def embed(self, prompt: str, reference: str | None = None) -> np.ndarray:
         """Embed a short style label, optionally anchored by a local WAV.
 
@@ -534,12 +628,20 @@ class MRTEngine:
         the native audio encoder and is linearly blended with the text target;
         this keeps the station named while grounding its actual timbre.
         """
-        reference_key = str(Path(reference).expanduser().resolve()) if reference else None
-        cache_key = (prompt, reference_key)
+        cache_key = self._embedding_key(prompt, reference)
+        reference_key = cache_key[1]
         cached = self._embeddings.get(cache_key)
         if cached is not None:
             return cached
+        # The TFLite interpreters are not thread safe; the model thread and
+        # the background embedder take turns.
+        with self._interpreter_lock:
+            cached = self._embeddings.get(cache_key)
+            if cached is not None:
+                return cached
+            return self._embed_uncached(prompt, reference_key, cache_key)
 
+    def _embed_uncached(self, prompt: str, reference_key: str | None, cache_key) -> np.ndarray:
         # The mapper projects text into the audio side of MusicCoCa's shared
         # space before RVQ. This is the path used by Magenta's own MLX CLI and
         # native runtime; without it most prompt tokens differ and conditioning
@@ -630,10 +732,11 @@ class MRTEngine:
         try:
             import style_tokens
 
-            released = style_tokens.release_interpreters(
-                self._system._style_model,
-                include_quantizer=self._tokenizer is not None,
-            )
+            with self._interpreter_lock:
+                released = style_tokens.release_interpreters(
+                    self._system._style_model,
+                    include_quantizer=self._tokenizer is not None,
+                )
         except Exception as exc:  # noqa: BLE001
             log.warning("could not release the style model: %s", exc)
             return
@@ -647,7 +750,8 @@ class MRTEngine:
         """Return the 12 MusicCoCa RVQ tokens for a 768-d style embedding."""
         if self._tokenizer is not None:
             return [int(token) for token in self._tokenizer.tokenize(style)]
-        return [int(token) for token in self._system._style_model.tokenize(style)]
+        with self._interpreter_lock:
+            return [int(token) for token in self._system._style_model.tokenize(style)]
 
     @staticmethod
     def style_cache_key(prompt: str, reference: str | None = None) -> str:
@@ -867,6 +971,14 @@ class MRTEngine:
 
         elapsed = renderer.prewarm(render, counts, frame_counts, self.set_codebooks)
         self.set_codebooks(chosen)
+        if self.last_tokens is not None and len(self.last_tokens) >= 2:
+            # Trace the teacher-forced step too (its first frame follows the
+            # int32 start token, later ones uint32 samples), so the first
+            # re-prime of the day does not pay for compilation mid-stream.
+            primer = self.begin_prime(
+                self.last_tokens[:2], ConditioningRun(style, key, None, 2), seed=0
+            )
+            self.advance_prime(primer, 2)
         log.info(
             "prewarmed compiled graphs (%s codebooks x %s frames) in %.1fs: %s",
             "/".join(str(count) for count in counts),
@@ -882,10 +994,16 @@ class MRTEngine:
             return None
 
     def _limit_mlx_cache(self):
-        if self.mlx_cache_mb <= 0:
-            return
         mx = self._mlx_module()
         if mx is None:
+            return
+        if self.wired_limit_mb > 0 and hasattr(mx, "set_wired_limit"):
+            try:
+                mx.set_wired_limit(self.wired_limit_mb * 1024 * 1024)
+                log.info("MLX wired limit %dMB", self.wired_limit_mb)
+            except Exception as exc:  # noqa: BLE001 - above the system limit
+                log.warning("could not wire %dMB of MLX memory: %s", self.wired_limit_mb, exc)
+        if self.mlx_cache_mb <= 0:
             return
         mx.set_cache_limit(self.mlx_cache_mb * 1024 * 1024)
         mx.clear_cache()
@@ -1154,6 +1272,7 @@ class MRTEngine:
         # whole chunk in one call. The listener receives the chunk at the same
         # moment either way, and the codec costs about a third as much.
         self._raise_if_stopping()
+        self.last_tokens = None
         if not self._fast:
             return self._generate_stock(state, plan, seed=seed)
 
@@ -1198,12 +1317,53 @@ class MRTEngine:
 
         pcm, codec_state = renderer.decode(frame_tokens, codec_state)
         next_state = (stepper.final_state(), *codec_state)
-        mx.eval(pcm, *flatten_state(next_state, mx)[0])
+        chunk_tokens = (
+            frame_tokens[0] if len(frame_tokens) == 1 else mx.concatenate(frame_tokens, axis=1)
+        )
+        mx.eval(pcm, chunk_tokens, *flatten_state(next_state, mx)[0])
+        # A few hundred bytes per chunk: the sampled frames are what a
+        # session keeps as its clean-anchor memory (see Session.note_chunk).
+        self.last_tokens = np.array(chunk_tokens[0], dtype=np.uint32)
 
         # the codec's last layer already emits int16 as [1, frames * 1920, 2] -
         # so this is a copy out of mlx and nothing else.
         samples = np.asarray(pcm[0])
         return np.ascontiguousarray(samples, dtype=np.int16).tobytes(), next_state
+
+    @property
+    def supports_priming(self) -> bool:
+        """Whether a fresh state can be teacher-forced through known tokens."""
+        return self._fast and self._renderer is not None
+
+    def begin_prime(self, tokens: np.ndarray, run: ConditioningRun, seed: int | None):
+        """Start forcing a fresh state (under ``seed``) through ``tokens`` [N, 12].
+
+        Drive the returned primer with ``advance_prime`` (resumable, in
+        slices) and ``finish_prime``, which yields a state that continues the
+        music those tokens encode. ``run`` supplies the conditioning; its
+        frame count is ignored.
+        """
+        if not self.supports_priming:
+            raise RuntimeError("priming needs the fast renderer")
+        self._raise_if_stopping()
+        style, key, notes, _frames, drum, sampling = self._run_parts(run)
+        block, constants = self._conditioning(
+            style, key, notes, drum=drum, sampling=sampling
+        )
+        state = self._new_eager_state(seed)
+        encoded = self._renderer.encode(block, state[0][0], constants)
+        return self._renderer.primer(state, block, encoded, constants, tokens)
+
+    def advance_prime(self, primer, frames: int) -> bool:
+        """Force up to ``frames`` more frames; returns whether priming is done."""
+        self._raise_if_stopping()
+        return primer.advance(frames)
+
+    def finish_prime(self, primer):
+        """The primed state, its codec settled on the final forced frames."""
+        self._raise_if_stopping()
+        # The shortest live chunk length already has a traced codec graph.
+        return primer.finish(min(self.live_frame_counts))
 
     def _new_eager_state(self, seed: int | None):
         """Create the pinned eager sampler state with an optional decoder seed."""
@@ -1283,6 +1443,15 @@ class MRTEngine:
 
     def close(self):
         """Release model and cache state on the MLX-owning worker thread."""
+        executor = self._embed_executor
+        self._embed_executor = None
+        if executor is not None:
+            executor.shutdown(wait=True, cancel_futures=True)
+        embedder = self._process_embedder
+        self._process_embedder = None
+        if embedder is not None:
+            embedder.close()
+        self._embed_futures.clear()
         self._warm = False
         self._style_key = None
         self._notes_key = None
@@ -1297,6 +1466,7 @@ class MRTEngine:
         self._renderer = None
         self._tokenizer = None
         self._released_interpreters = []
+        self.last_tokens = None
         self._system = None
         self._fast = False
         self._fast_sampling = False

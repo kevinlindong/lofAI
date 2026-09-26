@@ -285,3 +285,97 @@ const pet = load("pet-scene")
   assert.equal(observer, null)
   console.log("PASS  canvas loops cap refresh rate, stop when hidden, and track reduced motion")
 }
+
+{
+  // Low power lowers a loop's frame rate while it runs, and restores it.
+  const budget = load("render-budget")
+  cache.delete("canvas-loop")
+  const frames = new Map()
+  let id = 0, paints = 0
+  const events = () => {
+    const listeners = new Map()
+    return {
+      listeners,
+      addEventListener(type, fn) { listeners.set(type, fn) },
+      removeEventListener(type) { listeners.delete(type) },
+      fire(type) { listeners.get(type)?.() },
+    }
+  }
+  const motion = { ...events(), matches: false }
+  const document = { ...events(), hidden: false }
+  const { canvasLoop } = load("canvas-loop", {
+    window: { matchMedia: () => motion }, document,
+    requestAnimationFrame: fn => { frames.set(++id, fn); return id },
+    cancelAnimationFrame: id => frames.delete(id),
+    IntersectionObserver: class { observe() {} disconnect() {} },
+  })
+  const loop = canvasLoop({}, () => { paints++ }, () => {}, { fps: 60, lowPowerFps: 30 })
+  let clock = 0
+  const second = () => {
+    const start = paints
+    for (let i = 0; i < 120; i++) {
+      clock += 1000 / 120
+      const pending = Array.from(frames.values())
+      frames.clear()
+      for (const fn of pending) fn(clock)
+    }
+    return paints - start
+  }
+  const full = second()
+  budget.setLowPower(true)
+  const low = second()
+  budget.setLowPower(false)
+  const restored = second()
+  assert.ok(full >= 59 && full <= 61, `${full} paints at full rate`)
+  assert.ok(low >= 29 && low <= 31, `${low} paints in low power`)
+  assert.ok(restored >= 59 && restored <= 61, `${restored} paints after low power`)
+  loop.dispose()
+  console.log("PASS  low power halves a canvas loop's rate and restores it")
+}
+
+{
+  // The governor enters low power on the first sign of pressure and leaves
+  // only after a long, clearly healthy stretch, so it cannot oscillate.
+  const { LoadGovernor, MIN_LOW_POWER_MS, TROUBLE_MEMORY_MS } = load("render-budget")
+  const applied = []
+  const governor = new LoadGovernor(value => applied.push(value))
+  governor.noteHealth({ realtimeFactor: 2.4, codebooks: 12, maxCodebooks: 12 }, 0)
+  governor.noteBuffer(true, 0.8, 100)
+  assert.deepEqual(applied, [], "a machine with headroom keeps full rendering")
+  governor.noteHealth({ realtimeFactor: 1.3, codebooks: 12, maxCodebooks: 12 }, 1000)
+  assert.deepEqual(applied, [true], "a slow render enters low power")
+  governor.noteHealth({ realtimeFactor: 1.6, codebooks: 12, maxCodebooks: 12 }, 200_000)
+  assert.deepEqual(applied, [true], "a middling speed does not leave low power")
+  governor.noteHealth({ realtimeFactor: 2.2, codebooks: 11, maxCodebooks: 12 }, 210_000)
+  assert.deepEqual(applied, [true], "reduced codec depth counts as pressure")
+  // entered long ago, so only the time since the last trouble matters here
+  assert.ok(210_000 - 1000 >= MIN_LOW_POWER_MS)
+  const healthyAt = 210_000 + TROUBLE_MEMORY_MS
+  governor.noteHealth({ realtimeFactor: 2.2, codebooks: 12, maxCodebooks: 12 }, healthyAt - 1)
+  assert.deepEqual(applied, [true], "leaving waits out the trouble memory")
+  governor.noteHealth({ realtimeFactor: 2.2, codebooks: 12, maxCodebooks: 12 }, healthyAt)
+  assert.deepEqual(applied, [true, false], "a long healthy stretch restores full rendering")
+  governor.noteUnderrun(healthyAt + 10)
+  assert.deepEqual(applied, [true, false, true], "an audible gap enters low power at once")
+  governor.noteBuffer(true, 0.1, healthyAt + 20)
+  assert.deepEqual(applied, [true, false, true], "repeated pressure does not re-apply")
+
+  const dips = []
+  const bank = new LoadGovernor(value => dips.push(value))
+  bank.noteHealth({ realtimeFactor: 2.4, codebooks: 12, maxCodebooks: 12 }, 0)
+  bank.noteBuffer(true, 0.1, 100)
+  bank.noteBuffer(true, 0.1, 2_000)
+  bank.noteBuffer(true, 0.8, 2_100)
+  bank.noteBuffer(true, 0.1, 2_200)
+  assert.deepEqual(dips, [], "a momentary dip in the reservoir is not pressure")
+  bank.noteBuffer(true, 0.1, 5_200)
+  assert.deepEqual(dips, [true], "a sustained low reservoir is")
+  const dwell = []
+  const brief = new LoadGovernor(value => dwell.push(value))
+  brief.noteUnderrun(0)
+  brief.noteHealth({ realtimeFactor: 2.5, codebooks: 12, maxCodebooks: 12 }, TROUBLE_MEMORY_MS)
+  assert.deepEqual(dwell, [true], "low power holds for its minimum dwell")
+  brief.noteHealth({ realtimeFactor: 2.5, codebooks: 12, maxCodebooks: 12 }, MIN_LOW_POWER_MS)
+  assert.deepEqual(dwell, [true, false])
+  console.log("PASS  the load governor enters on pressure and leaves only after a long healthy stretch")
+}

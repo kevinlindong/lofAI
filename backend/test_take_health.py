@@ -345,9 +345,12 @@ class SessionIntegrationTests(unittest.TestCase):
     def test_station_change_relearns_the_baseline(self):
         session = Session("floor-style", "neutral", "guitar")
         session.floor_monitor._baseline_floor = 0.123
+        session.floor_monitor._baseline_high_floor = 0.001
         session.request_controls({"station": "rainy-piano"})
         session.conditioning_plan(self.PlanEngine(), 10)
-        self.assertIsNone(session.floor_monitor._baseline_floor)
+        # the old floor keeps judging while the new station's is learned
+        self.assertEqual(session.floor_monitor._baseline_floor, 0.123)
+        self.assertTrue(session.floor_monitor._relearning)
         self.assertFalse(session.consume_refresh_request())
 
     def test_station_change_on_a_rising_floor_requests_a_fresh_state(self):
@@ -386,6 +389,19 @@ class SessionIntegrationTests(unittest.TestCase):
 
 class WorkerRepairTests(unittest.TestCase):
     """The worker must splice onto a fresh state when a take drifts."""
+
+    # These check the guard's splice byte for byte; the hiss filter that runs
+    # after it on delivered audio is covered in test_hiss_filter.
+    def setUp(self):
+        import session_manager as manager_mod
+
+        self._hiss_filter = manager_mod.HISS_FILTER
+        manager_mod.HISS_FILTER = False
+
+    def tearDown(self):
+        import session_manager as manager_mod
+
+        manager_mod.HISS_FILTER = self._hiss_filter
 
     class RefreshEngine:
         size = "fake"
@@ -470,6 +486,10 @@ class WorkerRepairTests(unittest.TestCase):
         @property
         def drifted(self):
             return self._drifted
+
+        @property
+        def rising(self):
+            return False
 
         def describe(self):
             return "stub"

@@ -51,6 +51,17 @@ export interface ListenerControls {
   variation: number
 }
 
+// Receives the stream's own load signals. The page uses them to decide how
+// much animation it can afford beside the model (see lib/render-budget).
+export interface StreamLoadObserver {
+  noteHealth(
+    health: { realtimeFactor: number; codebooks?: number; maxCodebooks?: number },
+    now: number,
+  ): void
+  noteBuffer(playing: boolean, bufferedSeconds: number, now: number): void
+  noteUnderrun(now: number): void
+}
+
 export const DEFAULT_LISTENER_CONTROLS: ListenerControls = {
   station: "dusty-beats",
   drums: true,
@@ -506,7 +517,10 @@ export class MrtStream {
     variationPending: false,
   }
 
-  constructor(private onState: (state: StreamState) => void) {}
+  constructor(
+    private onState: (state: StreamState) => void,
+    private load: StreamLoadObserver | null = null,
+  ) {}
 
   // --- public api ---
 
@@ -853,6 +867,7 @@ export class MrtStream {
   private onSinkReport(report: SinkReport) {
     if (!this.wantsAudio) return
     if (!this.backendActive) return
+    this.load?.noteBuffer(report.playing, report.buffered, performance.now())
     this.persistSessionId()
     // Let the tuner recover while audio remains instead of waiting until the
     // listener hears a gap. Reports are frequent, so match the server's dwell.
@@ -897,6 +912,7 @@ export class MrtStream {
       this.recoveryMarginSeconds + GAP_MARGIN_SECONDS,
     )
     this.sink?.configure(this.currentReservoir())
+    this.load?.noteUnderrun(performance.now())
     this.send({ type: "gap" })
   }
 
@@ -1083,6 +1099,15 @@ export class MrtStream {
           // the measured factor and the jitter margin on every valid update.
           this.realtimeFactor = factor
           this.sink?.configure(this.currentReservoir())
+          this.load?.noteHealth(
+            {
+              realtimeFactor: factor,
+              codebooks: typeof message.codebooks === "number" ? message.codebooks : undefined,
+              maxCodebooks:
+                typeof message.maxCodebooks === "number" ? message.maxCodebooks : undefined,
+            },
+            performance.now(),
+          )
         }
 
         if (this.backendActive && !wasActive && this.wantsAudio) {

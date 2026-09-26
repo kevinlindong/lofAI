@@ -12,7 +12,8 @@ An AI generated lofi music player. Every listener gets their own endless stream,
 - The live path is prompt-first: one concise MusicCoCa station embedding guides MRT2 while its own audio history supplies the musical continuity. Piano-roll generation, bar clocks, and per-frame score churn stay out of the hot loop
 - Four curated stations provide coherent style targets. The sound editor also combines instruments, vibes, moods, and effect textures into a custom style prompt, or accepts a manual prompt. Drums, style match, and variation remain adjustable; station changes start on the next model chunk and glide over 320ms
 - **New take** resets the recurrent model state and sampling seed together, then prevents old in-flight audio from leaking into the new variation
-- Long takes are guarded against the model's one bad habit: it can slowly amplify a hiss bed it has fed back to itself through its own audio history - broadband hiss between notes on sparse stations, a 14-20 kHz whistle under the beat on busy ones. The backend watches the quiet moments of each stream and, when their high band audibly rises and stays up for half a minute (or gets loud enough to be hiss on any station), crossfades onto a fresh model state mid-stream - a subtle track change instead of a slowly degrading one
+- The audio you hear is cleaned of the model's hiss. MRT2 generates its own static - lo-fi prompts ask for recording texture, and it amplifies whatever bed is in its memory - so every stream passes through a light spectral filter (`backend/hiss_filter.py`) that removes the stationary noise floor above 2-3.5 kHz, cuts fixed-pitch whistles, and flattens the ringing comb that rides on hats above 12 kHz, while notes and transients pass. It measured 14-20 dB less noise in quiet moments with loud moments within 0.1-3.7 dB. It stands aside when a prompt asks for rain, vinyl, or tape texture
+- Long takes are also guarded at the source: the backend keeps the sampled tokens of each take's cleanest recent stretches as memory, and when the high band between notes starts to rise it re-primes a standby model state from that memory in the gaps between chunks and crossfades onto it - the same music continues without the hiss in its memory. A station change keeps the take's earlier clean reference, a floor that keeps returning backs off, and a fresh model state remains the fallback
 - Raw PCM travels over a WebSocket into one AudioWorklet read cursor. Fixed makeup gain compensates for codec headroom; a limiter and output ceiling catch peaks. Quiet passages keep their dynamics, with no automatic gain increase that could amplify hiss
 - Eight-bit weights, a specialized per-frame step loop, GPU keepalive, short startup chunks, and adaptive 10-12 layer codec output keep generation ahead of playback. Tokens for a whole chunk are sampled first and decoded through the codec in one call, and the step is traced with `mx.compile`, so the model thread spends its time on the GPU rather than in Python. The browser starts from a sub-second reservoir instead of hiding deficits behind seconds of buffering
 - The old symbolic composer remains available only to the offline evaluation harness for matched, fixed-seed comparisons. Signal metrics catch broken audio; people decide whether the result is good music
@@ -48,7 +49,8 @@ The visualizer and cat draw **liquid ink on a dot matrix**. Each cell contribute
 - The **visualizer** is a ring whose frequency bands pull on their neighbors through damped motion. A soft skirt, continuous body, and small bright crest move across eleven concentric rings of dots, with more dots on each outer ring to keep their spacing even. The field and its gradient are sampled at each dot's radial position, so the crest fades smoothly between rings; the center stays clear for the transport button.
 - The **cat** blinks, follows the cursor, nods to the music, reacts to tasks and petting, and dozes when left alone. Its coat flows underneath separate outlines and markings, so changes of shade leave no cracks. The head, face, paws, and collar carry fractional motion through the grid, and hops and pats ease in and out. Its unlit panel dots are cached until the size or theme changes. The artwork lives in `frontend/lib/pet-scene.ts`.
 - The **background** uses a few large ASCII marks drifting on CSS keyframes and leaning toward the cursor, plus a short liquid ink trail. The trail scatters each blob only over the grid cells it can reach, using reusable buffers, and stops drawing when it dries. ENDLESS is not redistributable here: optionally place a woff2 build at `frontend/public/fonts/endless.woff2` ([source](https://www.behance.net/gallery/247864363/ENDLESS-Geometric-Sans-Serif-Free-Font)); otherwise the marks use the monospace fallback.
-- Animation painting is capped at 60fps. The visualizer and cat stop when offscreen or the tab is hidden; the trail clears when the tab is hidden. Theme and size changes repaint correctly, including while reduced motion is enabled. Changes to `prefers-reduced-motion` take effect immediately.
+- Animation painting is capped at 60fps for the visualizer and 30fps for the cat. The visualizer and cat stop when offscreen or the tab is hidden; the trail clears when the tab is hidden. Theme and size changes repaint correctly, including while reduced motion is enabled. Changes to `prefers-reduced-motion` take effect immediately.
+- **Low power.** The page shares one chip with the model. When the backend reports it is short of headroom (render speed under 1.45x real time, reduced codec depth, a reservoir held low for three seconds, or an audible gap), the page switches to low power: the visualizer drops to 30fps and the cat to 20fps, the cursor trail stops, and backdrop blur and decorative CSS motion switch off. It returns to full rendering only after 90 seconds of clearly healthy speed (1.7x at full depth) and at least two minutes in low power, so it cannot oscillate. The switch lives in `frontend/lib/render-budget.ts`.
 
 `cd frontend && npm test` checks connector geometry, liquid merging and release, round droplets, bounded field sampling, continuous cat motion, and animation lifecycle behavior alongside the audio tests.
 
@@ -99,16 +101,20 @@ shuts down the backend, frontend, model inference, Next.js workers, and log
 follower together. If you choose the two-terminal option, Ctrl+C each of those
 foreground commands when you are done.
 
-The frontend launcher serves a production build by default. For Next.js hot
-reload while developing, run `LOFAI_FRONTEND_MODE=development ./frontend_start.sh`.
+The frontend launcher builds a static export (`frontend/out/`) and serves it
+with a small Python file server (`frontend/static_server.py`): the page is entirely client-side, so no
+Next.js server or render workers sit beside the model (about 185 MB less
+resident memory on an 8 GB Mac). For Next.js hot reload while developing, run
+`LOFAI_FRONTEND_MODE=development ./frontend_start.sh`.
 
 Backend: http://localhost:8000
 Frontend: http://localhost:3000
 
-The backend binds to loopback by default. To listen from another device, set
-`LOFAI_BACKEND_HOST=0.0.0.0`, point `NEXT_PUBLIC_BACKEND_HOST` at the Mac, and
-add the frontend origin to the comma-separated `LOFAI_ALLOWED_ORIGINS`. Keep
-the default loopback binding unless LAN access is intentional.
+The backend and frontend bind to loopback by default. To listen from another
+device, set `LOFAI_BACKEND_HOST=0.0.0.0` and `LOFAI_FRONTEND_HOST=0.0.0.0`,
+point `NEXT_PUBLIC_BACKEND_HOST` at the Mac, and add the frontend origin to the
+comma-separated `LOFAI_ALLOWED_ORIGINS`. Keep the default loopback binding
+unless LAN access is intentional.
 
 The HTTP server starts immediately while the model loads, checks decoded audio,
 and calibrates itself; the play button reports "warming up the model" until it
@@ -126,11 +132,12 @@ The backend runs every session on one thread, so how many people can listen at o
 | `MRT_MAX_SESSIONS` | `1` | Concurrent streams. Extra listeners queue for a slot |
 | `MRT_WORKER_QOS` | `user_initiated` | macOS priority for the dedicated inference thread; `default` leaves the inherited priority unchanged. Does not change other apps |
 | `LOFAI_BACKEND_HOST` | `127.0.0.1` | Backend bind address; use `0.0.0.0` only for intentional LAN access |
+| `LOFAI_FRONTEND_HOST` | `127.0.0.1` | Static frontend bind address; use `0.0.0.0` only for intentional LAN access |
 | `LOFAI_ALLOWED_ORIGINS` | local frontend origins | Comma-separated browser origins allowed to open the music WebSocket |
 | `MRT_TARGET_RTF` | `1.18` | How much faster than real time the auto-tuner aims to render. Raising it buys margin by spending audio detail |
 | `MRT_TEMPERATURE` | `1.0` | Sampling randomness; matches the upstream native live runner |
 | `MRT_TOP_K` | `100` | Candidate token pool; matches the upstream native live runner |
-| `MRT_CFG_MUSICCOCA` | `4.0` | MusicCoCa style guidance strength. Raised from the library's 3.0 because stronger guidance keeps long takes anchored to the station instead of drifting into a self-fed hiss bed; it costs no throughput |
+| `MRT_CFG_MUSICCOCA` | `4.0` | MusicCoCa style guidance strength. Raised from the library's 3.0 because stronger guidance keeps long takes anchored to the station instead of drifting into a self-fed hiss bed; it costs no throughput. The adherence dial scales it by 0.85-1.3, and sparse Rainy Piano asks for 1.25x more (`guidance` in `backend/styles.py`), which halved how often its takes needed repair |
 | `MRT_CFG_NOTES` | `1.0` | MIDI guidance strength (library default). Live generation sends no MIDI, so this stays neutral; raise it only when actually supplying notes |
 | `MRT_CFG_DRUMS` | `1.0` | Drum guidance strength |
 | `MRT_STYLE_TOKEN_LEVELS` | `12` | MusicCoCa RVQ levels sent to the model. Both checkpoints were trained on all 12, so masking the fine tail is an experiment, not a default |
@@ -154,7 +161,13 @@ The backend runs every session on one thread, so how many people can listen at o
 | `MRT_STYLE_RAMP_SECONDS` | `0.32` | How long a station change takes to fully land |
 | `MRT_STYLE_STEP_FRAMES` | `2` | How finely a chunk is split while a station change is gliding |
 | `MRT_SESSION_TTL` | `300` | How long a paused session keeps its state |
-| `MRT_TAKE_GUARD` | `1` | Watch each take's quiet-moment noise floor and crossfade onto a fresh model state if it audibly drifts upward. Set `0` to let takes run unguarded |
+| `MRT_TAKE_GUARD` | `1` | Watch each take's quiet-moment noise floor and repair it if it audibly drifts upward. Set `0` to let takes run unguarded |
+| `MRT_HISS_FILTER` | `1` | Remove the stationary hiss floor, whistles, and high ringing from every stream before it is sent (the guard still watches the unfiltered model). Set `0` to hear the model's raw output |
+| `MRT_PROCESS_EMBEDDER` | `1` | Embed a new custom prompt in a short-lived child process: rebuilding MusicCoCa's text encoder holds Python's GIL for over half a second, which would stall the stream. Set `0` to embed on a thread |
+| `MRT_RECORD_DIR` | unset | Diagnostics: write the audio each session actually sends to a WAV file in this directory |
+| `MRT_TAKE_REPRIME` | `1` | Repair a rising floor by re-priming a standby state from the take's own verified-clean memory, prepared between chunks, instead of restarting from silence. Set `0` to use only the fresh-state crossfade |
+| `MRT_ANCHOR_SECONDS` | `19.6` | Length of that clean memory (4-19.6 s). The default fills mrt2_small's receptive field; shorter anchors re-drifted sooner |
+| `MRT_WIRED_LIMIT_MB` | `0` | Opt-in: keep this much MLX memory resident (macOS 15+) so swap pressure from other apps cannot page the model out mid-stream. About 1100 covers the model while it renders. Wired memory is unavailable to every other process |
 | `MRT_BACKEND` | `python` | Runs the checkpoint eagerly. `mlxfn` currently falls back to `python` because its output/seed path is not safe |
 
 `GET /health` reports whether the model is loaded, how many sessions are active or queued, which codebook count the tuner has settled on, and per session its `realtimeFactor` and `gaps`.

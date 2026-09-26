@@ -275,6 +275,62 @@ class RealModelTests(unittest.TestCase):
         # A chunk's activations must not stay pinned behind the returned state.
         self.assertLess(mx.get_active_memory() - baseline, 64 * 1024 * 1024)
 
+    def test_compiled_priming_matches_the_library_forced_step(self):
+        import mlx.core as mx
+        from compiled_engine import flatten
+        from engine import ConditioningRun
+
+        _pcm, state = self._render(10, None, 11)
+        _pcm, state = self._render(10, state, 11)
+        tokens = np.concatenate([self.engine.last_tokens] * 6)  # 60 known frames
+        run = ConditioningRun(self.style, self.key, None, 10)
+        primer = self.engine.begin_prime(tokens, run, seed=3)
+        while not self.engine.advance_prime(primer, 16):
+            pass
+        compiled = primer.leaves
+        self.assertIsNotNone(compiled, "priming should run compiled")
+
+        layer0 = self.engine._system._sampler.layers[0]
+        eager = self.engine._new_eager_state(3)[0]
+        for frame in tokens:
+            _, eager = layer0.step(
+                primer.block,
+                eager,
+                forced_tokens=mx.array(frame[None, None, :], dtype=mx.uint32),
+                training=False,
+                constants=primer.constants,
+            )
+        expected, _ = flatten(eager, mx)
+        self.assertEqual(len(expected), len(compiled))
+        for a, b in zip(expected, compiled):
+            self.assertEqual(a.shape, b.shape)
+            if a.size <= 1:
+                continue
+            a32 = np.asarray(a.astype(mx.float32))
+            b32 = np.asarray(b.astype(mx.float32))
+            scale = max(1.0, float(np.abs(a32).max()))
+            # bf16 rounding differs between fused and eager kernels only
+            self.assertLess(float(np.abs(a32 - b32).max()) / scale, 0.05)
+
+    def test_a_primed_state_continues_the_stream(self):
+        from engine import ConditioningRun
+
+        _pcm, state = self._render(10, None, 21)
+        frames = []
+        for _ in range(8):
+            _pcm, state = self._render(10, state, 21)
+            frames.append(self.engine.last_tokens)
+        run = ConditioningRun(self.style, self.key, None, 10)
+        primer = self.engine.begin_prime(np.concatenate(frames), run, seed=9)
+        while not self.engine.advance_prime(primer, 32):
+            pass
+        primed = self.engine.finish_prime(primer)
+        pcm, _state = self._render(10, primed, 9)
+        samples = np.frombuffer(pcm, dtype=np.int16).astype(np.float64) / 32768.0
+        self.assertEqual(samples.size, 10 * 1920 * 2)
+        rms = float(np.sqrt(np.mean(samples**2)))
+        self.assertGreater(rms, 10 ** (-60 / 20), "a primed state must not start from silence")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

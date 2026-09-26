@@ -48,6 +48,16 @@ The repair is a server-side equal-power crossfade onto a fresh
 recurrent state (same station, new seed), which reads as a radio track
 change rather than a dropout: PCM flow, session identity, and the client
 transport are untouched.
+
+The preferred fresh state is not an empty one. ``Session`` keeps an
+*anchor*: the tokens of a recent stretch of this take whose own quiet-block
+floor was verified clean. A standby state teacher-forced through those tokens
+continues the same music from a memory with no hiss in it. Measured on the
+runaway takes above, re-priming from a clean anchor held the 5-20 kHz floor
+within a few dB of its start for the full eight minutes, where the unguarded
+takes climbed 20-30 dB. Because that repair is cheap and musically
+continuous, it is triggered by the earlier ``rising`` signal instead of
+waiting for ``drifted``.
 """
 
 from __future__ import annotations
@@ -122,6 +132,23 @@ MATURE_SUSTAIN_SECONDS = 10.0
 HIGH_BAND_LOW_HZ = 5_000.0
 HIGH_BAND_HIGH_HZ = 20_000.0
 
+# The early warning that starts a re-prime from a clean anchor. Drift was
+# measured to take 1.5-3 minutes to grow from +5 dB to a runaway, while a
+# re-prime is prepared in a few seconds and lands as a short crossfade into
+# the same music, so it can act on a smaller, shorter rise than the
+# fresh-state splice above: ~6 dB over the take's own baseline, loud enough to
+# be heard between notes after the browser's makeup gain, held for 10 seconds.
+EARLY_RISE_DB = 6.0
+EARLY_MIN_AUDIBLE_HIGH_DBFS = -66.0
+EARLY_SUSTAIN_SECONDS = 10.0
+
+# A stretch of the take may become an anchor only when its own quiet-block
+# high band sits within this margin of the baseline and below an absolute
+# level that is hiss on any station. Before a baseline exists only the
+# absolute test applies; the first seconds of a take are never considered.
+CLEAN_MARGIN_DB = 3.0
+CLEAN_MAX_HIGH_DBFS = -62.0
+
 _EPS = 1e-12
 
 
@@ -156,9 +183,16 @@ class TakeFloorMonitor:
         self._baseline_floor: float | None = None
         self._baseline_high_floor: float | None = None
         self._seen_blocks = 0
+        # Where the current baseline started learning, and whether an older
+        # one stays in force while a style change's floor is learned.
+        self._baseline_start = 0
+        self._relearning = False
         self._evaluation_blocks = max(1, round(EVALUATION_SECONDS / BLOCK_SECONDS))
         self._drift_votes: deque[bool] = deque(
             maxlen=max(1, round(max(SUSTAIN_SECONDS, MATURE_SUSTAIN_SECONDS) / EVALUATION_SECONDS))
+        )
+        self._early_votes: deque[bool] = deque(
+            maxlen=max(1, round(EARLY_SUSTAIN_SECONDS / EVALUATION_SECONDS))
         )
         self._remainder = np.empty((0, CHANNELS), dtype=np.float32)
         window = np.hanning(BLOCK_FRAMES).astype(np.float32)
@@ -170,6 +204,34 @@ class TakeFloorMonitor:
 
     def reset(self):
         self.__init__()
+
+    def relearn_baseline(self):
+        """A style change: learn the new style's floor, keeping the old as a cap.
+
+        The recurrent state - and any bed it has grown - survives a station
+        change, so a baseline re-learned from scratch would describe the
+        drift, not the music; measured after a switch to a custom mix, the
+        delivered floor then crept up 14 dB in three minutes with no repair.
+        Until the new baseline is learned the old one keeps judging, and the
+        take keeps the lower of the two.
+        """
+        self.restart_trailing()
+        self._baseline_start = self._seen_blocks
+        self._baseline_rms = []
+        self._baseline_high = []
+        self._relearning = self._baseline_floor is not None
+
+    def restart_trailing(self):
+        """Forget the trailing window and its votes, keeping the baseline.
+
+        Used after a splice that continues the same take from a clean
+        anchor: the baseline still describes this take, but blocks measured
+        before the splice must not vote on the audio after it.
+        """
+        self._trailing_rms.clear()
+        self._trailing_high.clear()
+        self._drift_votes.clear()
+        self._early_votes.clear()
 
     def observe(self, pcm: bytes):
         """Feed one interleaved int16 stereo chunk in play order."""
@@ -204,19 +266,25 @@ class TakeFloorMonitor:
 
     def _observe_block(self, rms: float, high: float):
         self._seen_blocks += 1
-        seconds = self._seen_blocks * BLOCK_SECONDS
-        if seconds <= BASELINE_SKIP_SECONDS:
+        seconds = (self._seen_blocks - self._baseline_start) * BLOCK_SECONDS
+        if seconds <= BASELINE_SKIP_SECONDS and not self._relearning:
             return
-        if self._baseline_floor is None:
+        if (self._baseline_floor is None or self._relearning) and seconds > BASELINE_SKIP_SECONDS:
             if seconds <= BASELINE_SKIP_SECONDS + BASELINE_SECONDS:
                 self._baseline_rms.append(rms)
                 self._baseline_high.append(high)
             else:
-                self._baseline_floor, self._baseline_high_floor = _floor_profile(
-                    self._baseline_rms, self._baseline_high
-                )
+                floor, high_floor = _floor_profile(self._baseline_rms, self._baseline_high)
+                if self._relearning and self._baseline_floor is not None:
+                    # A new style may lower the take's reference but never
+                    # raise it: re-learned from a state that already carried
+                    # a rising bed, it would teach the guard to accept it.
+                    floor = min(floor, self._baseline_floor)
+                    high_floor = min(high_floor, self._baseline_high_floor)
+                self._baseline_floor, self._baseline_high_floor = floor, high_floor
                 self._baseline_rms = []
                 self._baseline_high = []
+                self._relearning = False
         self._trailing_rms.append(rms)
         self._trailing_high.append(high)
         if self._seen_blocks % self._evaluation_blocks == 0:
@@ -240,6 +308,12 @@ class TakeFloorMonitor:
         if not drifted and rise is not None:
             drifted = high_db >= MIN_AUDIBLE_HIGH_DBFS and rise >= required_rise
         self._drift_votes.append(drifted)
+        early = drifted or (
+            rise is not None
+            and high_db >= EARLY_MIN_AUDIBLE_HIGH_DBFS
+            and rise >= EARLY_RISE_DB
+        )
+        self._early_votes.append(early)
 
     @property
     def drifted(self) -> bool:
@@ -256,6 +330,42 @@ class TakeFloorMonitor:
             return False
         recent = list(votes)[-needed:]
         return sum(recent) >= SUSTAIN_FRACTION * needed
+
+    @property
+    def rising(self) -> bool:
+        """Whether the high-band floor has held a smaller rise for 10 seconds.
+
+        Earlier than ``drifted`` by design: it starts a clean-anchor re-prime,
+        which costs a few seconds of background work and a short crossfade
+        into the same music rather than a new take.
+        """
+        votes = self._early_votes
+        if len(votes) < votes.maxlen:
+            return False
+        return sum(votes) >= SUSTAIN_FRACTION * len(votes)
+
+    def recent_high_floor_db(self, seconds: float) -> float | None:
+        """High-band floor of the most recent ``seconds``, or None if unseen."""
+        blocks = int(round(seconds / BLOCK_SECONDS))
+        if blocks <= 0 or len(self._trailing_rms) < blocks:
+            return None
+        rms = list(self._trailing_rms)[-blocks:]
+        high = list(self._trailing_high)[-blocks:]
+        _floor, high_floor = _floor_profile(rms, high)
+        return _dbfs(high_floor)
+
+    def recent_is_clean(self, seconds: float) -> bool:
+        """Whether the most recent ``seconds`` of audio have a clean floor.
+
+        Measured on exactly the blocks an anchor would cover, so a stretch
+        is only trusted as clean memory when its own quiet moments are.
+        """
+        high_db = self.recent_high_floor_db(seconds)
+        if high_db is None or high_db > CLEAN_MAX_HIGH_DBFS:
+            return False
+        if self._baseline_high_floor is None:
+            return True
+        return high_db <= _dbfs(self._baseline_high_floor) + CLEAN_MARGIN_DB
 
     @property
     def suspicious(self) -> bool:

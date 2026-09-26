@@ -1,12 +1,27 @@
+import { lowPowerActive, onLowPowerChange } from "./render-budget"
+
+export interface LoopRate {
+  // Frames per second while the page has headroom. Defaults to 60.
+  fps?: number
+  // Frames per second in low power (see render-budget). Keep it at 20 or
+  // above: the scenes integrate at most 0.05 s per frame, so a slower loop
+  // would play its motion in slow motion rather than more coarsely.
+  lowPowerFps?: number
+}
+
 // Keep motion at 60fps without doing twice the painting on a 120Hz display.
 // Hidden/offscreen canvases stop entirely; resuming starts with a small dt.
 export function canvasLoop(
   element: Element,
   draw: (now: number, dt: number) => void,
   still: () => void,
+  rate: LoopRate = {},
 ) {
   const motion = window.matchMedia("(prefers-reduced-motion: reduce)")
-  const interval = 1000 / 60
+  const fullFps = rate.fps ?? 60
+  const lowFps = rate.lowPowerFps ?? fullFps
+  const intervalNow = () => 1000 / (lowPowerActive() ? lowFps : fullFps)
+  let interval = intervalNow()
   let visible = true
   let disposed = false
   let raf = 0
@@ -40,6 +55,10 @@ export function canvasLoop(
   observer.observe(element)
   document.addEventListener("visibilitychange", sync)
   motion.addEventListener("change", sync)
+  const stopWatchingPower = onLowPowerChange(() => {
+    interval = intervalNow()
+    due = 0
+  })
   sync()
 
   return {
@@ -52,6 +71,7 @@ export function canvasLoop(
       observer.disconnect()
       document.removeEventListener("visibilitychange", sync)
       motion.removeEventListener("change", sync)
+      stopWatchingPower()
     },
   }
 }

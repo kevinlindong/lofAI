@@ -75,6 +75,37 @@ class MusicControlTests(unittest.TestCase):
                 self.assertIsNone(styles.audio_reference_for("jazz-cafe"))
                 self.assertIsNone(styles.audio_reference_for("custom"))
 
+    def test_sparse_station_asks_for_stronger_guidance(self):
+        def scale(station):
+            return MusicControls.initial(station=station).sampling_overrides()[
+                "cfg_musiccoca_scale"
+            ]
+
+        self.assertAlmostEqual(
+            scale("rainy-piano") / scale("dusty-beats"),
+            styles.STATIONS["rainy-piano"].guidance,
+        )
+        self.assertGreater(styles.STATIONS["rainy-piano"].guidance, 1.0)
+        self.assertEqual(scale("custom"), scale("dusty-beats"))
+
+    def test_boosted_station_keeps_the_dial_s_full_travel(self):
+        from engine import SamplingControls
+        from session import Session
+
+        class Engine:
+            def default_sampling(self):
+                return SamplingControls(1.0, 100, 4.0, 1.0, 1.0)
+
+        def cfg(station, adherence):
+            controls = MusicControls.initial(station=station).update(
+                {"adherence": adherence}
+            )
+            return Session._sampling_for(Engine(), controls).cfg_musiccoca
+
+        self.assertGreater(cfg("rainy-piano", 1.0), cfg("rainy-piano", 0.8))
+        self.assertLessEqual(cfg("rainy-piano", 1.0), 7.0)
+        self.assertEqual(cfg("dusty-beats", 1.0), 5.2)
+
     def test_public_options_match_protocol_ranges(self):
         options = styles.public_options()
         self.assertEqual(options["limits"]["bpm"], [60, 110])

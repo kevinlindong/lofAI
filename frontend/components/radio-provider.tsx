@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import type { PetEvent, PetSignal } from "@/components/pet"
 import { DEFAULT_LISTENER_CONTROLS, MrtStream, type StreamState } from "@/lib/mrt-stream"
+import { LoadGovernor, setLowPower } from "@/lib/render-budget"
 import { CUSTOM_STATION, soundDraftFor, STATION_PRESETS, type RadioControls, type SoundDraft } from "@/lib/sound-recipe"
 
 const IDLE_STATE: StreamState = {
@@ -54,11 +55,14 @@ function useRadioState() {
   }
 
   useEffect(() => {
-    const stream = new MrtStream(setStreamState)
+    // The governor turns on low-power rendering when the model is short of
+    // headroom on this machine (lib/render-budget).
+    const stream = new MrtStream(setStreamState, new LoadGovernor())
     streamRef.current = stream
     return () => {
       stream.destroy()
       streamRef.current = null
+      setLowPower(false)
     }
   }, [])
 

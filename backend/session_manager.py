@@ -1,5 +1,6 @@
 # session lifecycle plus the single generation worker
 
+import gc
 import logging
 import os
 import threading
@@ -62,6 +63,27 @@ SESSION_TTL = _env_float("MRT_SESSION_TTL", 300.0)
 # worker crossfades onto a fresh recurrent state mid-stream. See take_health.
 TAKE_GUARD = _env_int("MRT_TAKE_GUARD", 1) != 0
 
+# Prefer repairing a drifting take by re-priming a standby state from the
+# take's own verified-clean recent memory (Session.anchor) over restarting it
+# from silence. The standby is teacher-forced in slices while the worker would
+# otherwise idle, so no listener waits on it; a fresh state remains the
+# fallback when no clean anchor exists or priming cannot finish in time.
+TAKE_REPRIME = _env_int("MRT_TAKE_REPRIME", 1) != 0
+
+# Remove the stationary hiss floor from every stream before it is sent (see
+# hiss_filter). The take guard still watches the unfiltered model output.
+HISS_FILTER = _env_int("MRT_HISS_FILTER", 1) != 0
+
+# Opt-in diagnostics: write the PCM each session actually sends to a WAV file
+# in this directory, so what a listener heard can be measured afterwards.
+RECORD_DIR = os.environ.get("MRT_RECORD_DIR", "").strip()
+PRIME_SLICE_FRAMES = 16
+PRIME_TIMEOUT_SECONDS = 20.0
+# Idle time kept free after a priming slice, and the per-frame cost assumed
+# before one has been measured (a conservative M1-class figure).
+PRIME_SLACK_MARGIN_SECONDS = 0.01
+PRIME_FRAME_COST_SECONDS = 0.008
+
 # ceiling on retained sessions, so suspended state cannot pile up unbounded
 MAX_TOTAL = max(MAX_ACTIVE, _env_int("MRT_MAX_SESSIONS_TOTAL", 8))
 
@@ -103,6 +125,8 @@ class SessionManager:
         # loop only raises these coalesced feedback flags and wakes it.
         self._pending_gap = False
         self._pending_pressure = False
+        # Measured seconds per teacher-forced frame, for sizing idle slices.
+        self._prime_frame_cost = PRIME_FRAME_COST_SECONDS
 
     # --- startup / shutdown ---
 
@@ -154,6 +178,13 @@ class SessionManager:
             self._broadcast_terminal_error(str(exc))
             return False
 
+        # Loading leaves a quarter of a million long-lived Python objects
+        # (MLX module trees, TFLite and JAX imports). A full collection walks
+        # all of them - about 40 ms on an M3 Pro, more on an M1 - and lands
+        # on this thread at arbitrary moments mid-stream. Freezing them after
+        # warm-up leaves the collector only the short-lived per-frame objects.
+        gc.collect()
+        gc.freeze()
         log.info("model ready in %.1fs", time.monotonic() - started)
         self._last_quality = self.engine.codebooks
         with self._lock:
@@ -531,6 +562,13 @@ class SessionManager:
                 # client sizes its reservoir from it: there is no reason to make
                 # someone wait through a deep prebuffer on a box with headroom.
                 "realtimeFactor": round(self._per_session_realtime_factor(), 3),
+                # Codec depth below its maximum means the tuner is already
+                # spending detail to stay real time; the page lightens its
+                # own rendering on that signal (frontend/lib/render-budget).
+                "codebooks": self.engine.codebooks,
+                # A pinned depth is this machine's ceiling, not a deficit.
+                "maxCodebooks": getattr(self.engine, "pinned_codebooks", 0)
+                or self.engine.max_codebooks,
             }
             if not self.engine.ready:
                 payload["state"] = "loading"
@@ -579,6 +617,11 @@ class SessionManager:
                 "styleTokenLevels": self.engine.style_token_levels,
                 "melodyGuided": False,
                 "mlxCacheLimitMB": self.engine.mlx_cache_mb,
+                "mlxWiredLimitMB": getattr(self.engine, "wired_limit_mb", 0),
+                "takeGuard": TAKE_GUARD,
+                "hissFilter": HISS_FILTER,
+                "takeReprime": TAKE_REPRIME
+                and bool(getattr(self.engine, "supports_priming", False)),
                 "pipelined": self.engine._fast,
                 "workerQoS": self._worker_qos,
                 "fastSampler": self.engine._fast_sampling,
@@ -643,6 +686,11 @@ class SessionManager:
                 self._apply_feedback()
                 session = self._next_due()
                 if session is None:
+                    # Nobody needs audio yet: spend the slack on any standby
+                    # state being primed, one short slice at a time so the
+                    # next due chunk is never held up for long.
+                    if self._advance_primers():
+                        continue
                     self._maybe_reap()
                     # sleep until the earliest session actually wants audio rather
                     # than waking a hundred times a second to find out it does not
@@ -673,34 +721,11 @@ class SessionManager:
                         session.state, plan, seed=session.seed
                     )
                     if TAKE_GUARD:
-                        monitor = session.floor_monitor
-                        monitor.observe(pcm)
-                        reason = None
-                        if monitor.drifted:
-                            # The take has audibly grown a hiss bed out of its
-                            # own feedback.
-                            reason = f"take drifted ({monitor.describe()})"
-                        elif session.consume_refresh_request():
-                            # A station change landed while the floor had begun
-                            # to rise; the boundary is already audible, so a
-                            # fresh state costs nothing extra here.
-                            reason = "station changed while the floor was rising"
-                        if reason is not None:
-                            # Splice onto a fresh recurrent state under the same
-                            # conditioning: one extra chunk of render cost, no
-                            # transport or session change.
-                            refreshed_seed = session.next_refresh_seed()
-                            fresh_pcm, fresh_state = self.engine.generate(
-                                None, plan, seed=refreshed_seed
-                            )
-                            log.info(
-                                "session %s %s; crossfading onto a fresh state",
-                                session.id[:8],
-                                reason,
-                            )
-                            pcm = crossfade_pcm(pcm, fresh_pcm)
-                            next_state = fresh_state
-                            monitor.reset()
+                        pcm, next_state, refreshed_seed = self._guard_take(
+                            session, plan, pcm, next_state
+                        )
+                    if HISS_FILTER:
+                        pcm = session.filter_pcm(pcm)
                 except Exception as exc:  # noqa: BLE001 - isolate bad sessions
                     if self._stopping.is_set():
                         break
@@ -736,6 +761,8 @@ class SessionManager:
                         None if self._stopping.is_set() else session.epoch_sink
                     )
                     sink = None if self._stopping.is_set() else session.sink
+                    if RECORD_DIR:
+                        self._record(session, render_epoch, pcm)
                     if epoch_sink is not None:
                         # Carry the render generation through the event-loop
                         # handoff. A variation can be acknowledged after this
@@ -779,6 +806,9 @@ class SessionManager:
                 close()
             except Exception:  # noqa: BLE001 - cleanup must continue
                 log.exception("failed to release inference engine resources")
+        # The model's object graph has reference cycles; frozen, a restart in
+        # this process would keep the old model alive beside the new one.
+        gc.unfreeze()
 
     def _clear_session_registry_locked(self):
         # Caller holds _lock. Return values are not needed: all retained MLX
@@ -810,6 +840,189 @@ class SessionManager:
             # A gap already applies the stronger signal; do not spend two
             # codebooks when both reports race into the same loop iteration.
             self.engine.note_pressure()
+
+    def _guard_take(self, session: Session, plan, pcm: bytes, next_state):
+        """Watch one rendered chunk for a rising floor and repair the take.
+
+        Returns the PCM to deliver (crossfaded at a splice), the state to
+        continue from, and the take's new seed when it moved to another
+        state. Called only on the worker, right after ``generate``.
+        """
+        engine = self.engine
+        monitor = session.floor_monitor
+        monitor.observe(pcm)
+        session.note_chunk(getattr(engine, "last_tokens", None), plan)
+
+        primer = session.primer
+        if primer is not None and primer.done and not (monitor.drifted or monitor.rising):
+            # The floor settled by itself while the standby was prepared (a
+            # bright passage, not a bed): keep playing rather than jump back.
+            log.info("session %s floor settled; dropping the standby", session.id[:8])
+            session.abandon_primer()
+            primer = None
+        if primer is not None and primer.done:
+            seed = session.primer_seed
+            try:
+                primed_state = engine.finish_prime(primer)
+                fresh_pcm, fresh_state = engine.generate(primed_state, plan, seed=seed)
+            except Exception:  # noqa: BLE001 - fall back to the plain guard
+                if self._stopping.is_set():
+                    raise
+                log.exception("re-prime failed for session %s", session.id[:8])
+                session.abandon_primer()
+            else:
+                log.info(
+                    "session %s re-primed from its clean memory (%s); crossfading",
+                    session.id[:8],
+                    monitor.describe(),
+                )
+                session.note_reprime(seed)
+                # Same take, so the baseline still applies; the trailing
+                # window must not judge the new state by the old one's hiss.
+                monitor.restart_trailing()
+                session.restart_recent_tokens()
+                session.note_chunk(getattr(engine, "last_tokens", None), plan)
+                return crossfade_pcm(pcm, fresh_pcm), fresh_state, seed
+
+        reason = None
+        if session.consume_refresh_request():
+            # A station change landed while the floor had begun to rise; the
+            # boundary is already audible, and the old station's memory
+            # cannot continue the new one, so a fresh state costs nothing.
+            reason = "station changed while the floor was rising"
+        elif monitor.drifted or monitor.rising:
+            if self._start_reprime(session, plan):
+                return pcm, next_state, None
+            if monitor.drifted:
+                # The take has audibly grown a hiss bed out of its own
+                # feedback and there is no clean memory to return to.
+                reason = f"take drifted ({monitor.describe()})"
+        if reason is None:
+            return pcm, next_state, None
+
+        # Splice onto a fresh recurrent state under the same conditioning:
+        # one extra chunk of render cost, no transport or session change.
+        refreshed_seed = session.next_refresh_seed()
+        fresh_pcm, fresh_state = engine.generate(None, plan, seed=refreshed_seed)
+        log.info(
+            "session %s %s; crossfading onto a fresh state",
+            session.id[:8],
+            reason,
+        )
+        monitor.reset()
+        session.forget_anchor()
+        session.note_chunk(getattr(engine, "last_tokens", None), plan)
+        return crossfade_pcm(pcm, fresh_pcm), fresh_state, refreshed_seed
+
+    def _start_reprime(self, session: Session, plan) -> bool:
+        """Start (or keep) priming a standby state; False if none is possible."""
+        engine = self.engine
+        if not TAKE_REPRIME or not getattr(engine, "supports_priming", False):
+            return False
+        if session.primer is not None:
+            # Measured in audio rendered, so time spent paused or queued does
+            # not count against it.
+            waited = session.generated_seconds - session.primer_started_audio
+            if waited <= PRIME_TIMEOUT_SECONDS:
+                return True
+            # The worker never had slack to finish it: the machine is at its
+            # limit, and the plain guard is the only affordable repair.
+            log.warning("priming for session %s timed out", session.id[:8])
+            session.abandon_primer()
+            return False
+        if not session.reprime_allowed():
+            return False
+        run = session.anchor_run(plan)
+        if run is None:
+            return False
+        seed = session.next_reprime_seed()
+        try:
+            session.primer = engine.begin_prime(session.anchor, run, seed)
+        except Exception:  # noqa: BLE001 - the plain guard still applies
+            if self._stopping.is_set():
+                raise
+            log.exception("could not start priming for session %s", session.id[:8])
+            return False
+        session.primer_seed = seed
+        session.primer_started = time.monotonic()
+        session.primer_started_audio = session.generated_seconds
+        log.info(
+            "session %s floor rising (%s); priming a standby from clean memory",
+            session.id[:8],
+            session.floor_monitor.describe(),
+        )
+        return True
+
+    def _advance_primers(self) -> bool:
+        """Advance unfinished standbys within the idle time; True if any worked.
+
+        Each slice is sized to finish before the next stream is due, from the
+        measured cost of a primed frame, so priming never makes a chunk late:
+        on a machine with no slack it simply does not progress, and the
+        guard's timeout hands the repair to the fresh-state splice.
+        """
+        if not TAKE_REPRIME:
+            return False
+        now = time.monotonic()
+        with self._lock:
+            pending = [
+                s for s in self._active if s.primer is not None and not s.primer.done
+            ]
+            slack = min(
+                (s.due_in(now, LOOKAHEAD_SECONDS) for s in self._active),
+                default=float("inf"),
+            )
+        if not pending:
+            return False
+        budget = (slack - PRIME_SLACK_MARGIN_SECONDS) / len(pending)
+        frames = min(PRIME_SLICE_FRAMES, int(budget / self._prime_frame_cost))
+        if frames < 1:
+            return False
+        for session in pending:
+            primer = session.primer
+            before = getattr(primer, "position", None)
+            started = time.monotonic()
+            try:
+                self.engine.advance_prime(primer, frames)
+            except Exception:  # noqa: BLE001 - drop the standby, keep streaming
+                if self._stopping.is_set():
+                    return False
+                log.exception("priming failed for session %s", session.id[:8])
+                session.abandon_primer()
+                continue
+            advanced = (
+                primer.position - before if before is not None else frames
+            )
+            if advanced > 0:
+                per_frame = (time.monotonic() - started) / advanced
+                # A slow estimate only shortens slices; a fast one overruns.
+                self._prime_frame_cost = max(
+                    0.5 * self._prime_frame_cost + 0.5 * per_frame, per_frame
+                )
+        return True
+
+    def _record(self, session: Session, epoch: int, pcm: bytes):
+        """Append a delivered chunk to this take's diagnostic WAV file."""
+        import wave
+
+        key = (session.id, epoch)
+        recorder = getattr(session, "_recorder", None)
+        if recorder is None or recorder[0] != key:
+            if recorder is not None:
+                recorder[1].close()
+            os.makedirs(RECORD_DIR, exist_ok=True)
+            path = os.path.join(
+                RECORD_DIR, f"{time.strftime('%Y%m%d-%H%M%S')}-{session.id[:8]}-{epoch}.wav"
+            )
+            handle = wave.open(path, "wb")
+            handle.setnchannels(engine_mod.CHANNELS)
+            handle.setsampwidth(2)
+            handle.setframerate(engine_mod.SAMPLE_RATE)
+            session._recorder = (key, handle)
+            log.info("recording session %s to %s", session.id[:8], path)
+        # writeframes rewrites the header each call, so the file stays valid
+        # even if the process is stopped abruptly.
+        session._recorder[1].writeframes(pcm)
 
     def _release_retired(self):
         """Drop reaped MLX state on the only thread allowed to own it."""

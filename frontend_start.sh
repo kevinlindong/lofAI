@@ -41,15 +41,17 @@ if [ "$FRONTEND_MODE" != "production" ]; then
     exit 1
 fi
 
-# Rebuild only when application source or dependency metadata changed.
-BUILD_ID=".next/BUILD_ID"
+# Rebuild only when application source or dependency metadata changed. The
+# production build is a static export (next.config.mjs): plain files in out/,
+# whose own index.html is the build stamp.
+BUILD_STAMP="out/index.html"
 NEEDS_BUILD=0
-if [ ! -f "$BUILD_ID" ]; then
+if [ ! -f "$BUILD_STAMP" ]; then
     NEEDS_BUILD=1
-elif find app components lib public -type f -newer "$BUILD_ID" -print -quit | grep -q .; then
+elif find app components lib public -type f -newer "$BUILD_STAMP" -print -quit | grep -q .; then
     NEEDS_BUILD=1
-elif [ package.json -nt "$BUILD_ID" ] || [ package-lock.json -nt "$BUILD_ID" ] || \
-     [ next.config.mjs -nt "$BUILD_ID" ]; then
+elif [ package.json -nt "$BUILD_STAMP" ] || [ package-lock.json -nt "$BUILD_STAMP" ] || \
+     [ next.config.mjs -nt "$BUILD_STAMP" ]; then
     NEEDS_BUILD=1
 fi
 
@@ -58,5 +60,13 @@ if [ "$NEEDS_BUILD" = "1" ]; then
     lofai_run_service_command npm run build
 fi
 
-echo "Starting production frontend on http://localhost:$FRONTEND_PORT"
-PORT="$FRONTEND_PORT" lofai_run_service_command npm run start
+# Serve the export with one small static file server rather than a Next.js
+# server and its render workers: the page is entirely client-side, and the
+# memory goes to the model on an 8GB Mac. Loopback only, like the backend
+# default; the backend's allowed origins already cover this port.
+STATIC_PYTHON="$SCRIPT_DIR/venv/bin/python"
+[ -x "$STATIC_PYTHON" ] || STATIC_PYTHON="$(command -v python3)"
+FRONTEND_HOST="${LOFAI_FRONTEND_HOST:-127.0.0.1}"
+echo "Serving production frontend on http://localhost:$FRONTEND_PORT"
+lofai_run_service_command "$STATIC_PYTHON" static_server.py --port "$FRONTEND_PORT" \
+    --bind "$FRONTEND_HOST" --directory out

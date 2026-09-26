@@ -1333,3 +1333,26 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Low power (lib/render-budget.ts). The page switches here when the live
+   model is short of headroom on this machine. Nothing is hidden: the cards
+   lose their live backdrop blur (re-rendered under every animated frame) and
+   the purely decorative drift and morph animations hold still, so the
+   compositor can idle between canvas frames and the GPU goes to the music. */
+html.low-power *,
+html.low-power *::before,
+html.low-power *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+html.low-power .ascii-mark,
+html.low-power .play-key,
+html.low-power .visualizer-stage::after,
+html.low-power .station-indicator > i {
+  animation-play-state: paused !important;
+}
+
+html.low-power .site-shell::after {
+  display: none;
+}
