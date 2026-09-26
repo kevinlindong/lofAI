@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { PetEvent, PetSignal } from "@/components/pet"
 import { DEFAULT_LISTENER_CONTROLS, MrtStream, type StreamState } from "@/lib/mrt-stream"
 import { LoadGovernor, setLowPower } from "@/lib/render-budget"
-import { CUSTOM_STATION, soundDraftFor, STATION_PRESETS, type RadioControls, type SoundDraft } from "@/lib/sound-recipe"
+import { soundDraftFor, STATION_PRESETS, type RadioControls, type SoundDraft } from "@/lib/sound-recipe"
 
 const IDLE_STATE: StreamState = {
   status: "idle", queuePosition: 0, listeners: 0, capacity: 0,
@@ -33,8 +33,6 @@ function useRadioState() {
   const [streamState, setStreamState] = useState<StreamState>(IDLE_STATE)
   const [petSignal, setPetSignal] = useState<PetSignal | null>(null)
   const [focusMode, setFocusMode] = useState(false)
-  const [sleepEndsAt, setSleepEndsAt] = useState<number | null>(null)
-  const [sleepRemaining, setSleepRemaining] = useState(0)
   const streamRef = useRef<MrtStream | null>(null)
   const previousVolume = useRef(100)
 
@@ -43,15 +41,6 @@ function useRadioState() {
     if (!preset) return
     setControls({ ...controls, ...overrides, station, customPrompt: "", recipe: undefined })
     setSoundDraft((draft) => ({ ...draft, mode: "builder", recipe: preset.recipe }))
-  }
-
-  const restoreMix = (saved: RadioControls) => {
-    const next = { ...DEFAULT_LISTENER_CONTROLS, ...saved }
-    const draft = soundDraftFor(next)
-    // Older saved mixes have no recipe or granular dials.
-    next.recipe = next.station === CUSTOM_STATION && draft.mode === "builder" ? draft.recipe : undefined
-    setControls(next)
-    setSoundDraft(draft)
   }
 
   useEffect(() => {
@@ -93,23 +82,6 @@ function useRadioState() {
     else setVolume(previousVolume.current || 60)
   }, [volume])
 
-  const setSleepTimer = useCallback((minutes: number) => {
-    setSleepEndsAt(minutes > 0 ? Date.now() + minutes * 60_000 : null)
-    setSleepRemaining(minutes * 60)
-  }, [])
-
-  useEffect(() => {
-    if (!sleepEndsAt) return
-    const tick = () => {
-      const left = Math.max(0, Math.ceil((sleepEndsAt - Date.now()) / 1000))
-      setSleepRemaining(left)
-      if (left === 0) { pausePlayback(); setSleepEndsAt(null) }
-    }
-    tick()
-    const interval = window.setInterval(tick, 1000)
-    return () => window.clearInterval(interval)
-  }, [sleepEndsAt, pausePlayback])
-
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement
@@ -125,11 +97,11 @@ function useRadioState() {
 
   const label = useMemo(() => statusLabel(streamState, wantsAudio), [streamState, wantsAudio])
   return {
-    controls, setControls, soundDraft, setSoundDraft, selectStation, restoreMix,
+    controls, setControls, soundDraft, setSoundDraft, selectStation,
     volume, setVolume, wantsAudio, streamState,
     isLive: streamState.status === "live", petSignal, focusMode, setFocusMode,
     togglePlayback, requestVariation, getLevel, getSpectrum, handlePetEvent,
-    toggleMute, label, sleepEndsAt, sleepRemaining, setSleepTimer,
+    toggleMute, label,
   }
 }
 

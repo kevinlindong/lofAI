@@ -93,22 +93,6 @@
 .control-playback { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 1.5rem; padding-top: 0.9rem; border-top: 1px solid var(--line-color); }
 .control-playback > button { margin-top: 0.7rem; }
 
-/* Each alternative keeps its own material and typographic character. */
-.design-view .sound-editor { --sound-radius: 0.25rem; margin-top: 1.4rem; padding-top: 1.2rem; border-top: 1px solid var(--line-color); }
-.view-sunday .sound-heading h2 { font-family: "Instrument Serif", Georgia, serif; font-size: 1.9rem; font-weight: 400; }
-.view-form .sound-editor { --sound-radius: 0; }
-.view-form .sound-heading h2 { font-weight: 700; }
-.view-form .sound-heading-glyph { border-radius: 0; }
-.view-signal .sound-editor { --sound-radius: 0.25rem; }
-.view-signal .sound-eyebrow, .view-signal .sound-detail-tabs { font-family: ui-monospace, monospace; }
-.view-signal .sound-heading h2 { font-size: 1.15rem; letter-spacing: -0.025em; }
-.view-signal .sound-mode-tabs { box-shadow: inset 0 2px 4px #0002; }
-.view-signal .sound-mode-tabs button[aria-selected="true"] { box-shadow: inset 0 1px color-mix(in srgb, var(--text) 12%, transparent), 0 2px 4px #0002; }
-.view-signal .sound-chip { border-radius: 0.25rem; }
-.design-view .sound-tuning-dials .flow-range-visual { height: 3px; }
-.design-view .sound-tuning-dials .flow-range-thumb { width: 11px; height: 11px; }
-.form-now-playing p, .signal-display > p { overflow-wrap: anywhere; }
-
 @media (max-width: 640px) {
   .control-bank { padding: 0.9rem; }
   .sound-writing textarea { font-size: 1rem; }

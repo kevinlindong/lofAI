@@ -1348,8 +1348,7 @@ html.low-power *::after {
 
 html.low-power .ascii-mark,
 html.low-power .play-key,
-html.low-power .visualizer-stage::after,
-html.low-power .station-indicator > i {
+html.low-power .visualizer-stage::after {
   animation-play-state: paused !important;
 }
 

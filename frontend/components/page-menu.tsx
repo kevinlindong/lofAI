@@ -1,10 +1,8 @@
 "use client"
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react"
-import Link from "next/link"
 import { DotGlyph } from "@/components/dot-glyph"
 import { applyTheme, getActiveTheme, THEMES, type ThemeId } from "@/lib/themes"
-import { DESIGNS } from "@/lib/designs"
 
 const SHORTCUTS = [
   { href: "#radio", label: "Radio", icon: "music" },
@@ -139,21 +137,6 @@ export function PageMenu() {
               <DotGlyph name="settings" dot={2} />
               <span>Settings</span>
             </button>
-            <div className="menu-divider" role="separator" />
-            {DESIGNS.map((design) => (
-              <Link
-                key={design.id}
-                href={`/${design.id}`}
-                prefetch={false}
-                role="menuitem"
-                tabIndex={-1}
-                className="menu-item"
-                onClick={() => setOpenPanel(null)}
-              >
-                <span className="text-xs tabular-nums">0{design.id}</span>
-                <span>{design.name}</span>
-              </Link>
-            ))}
           </div>
         )}
         {openPanel === "settings" && (

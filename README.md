@@ -28,21 +28,11 @@ See [the streaming design note](docs/MUSIC_STREAMING.md) for the full MRT2 pipel
 
 ## The Interface:
 
-Five separate designs are available at the numbered routes. `/` and `/1` keep the original interface; its Menu also links to all five spaces.
+The interface is served at `/` (and `/1`): the radio, cat, tasks, timer, and color themes.
 
-| Route | Design | Listening experience |
-|---|---|---|
-| `/1` | Original | The existing radio, cat, tasks, timer, and color themes |
-| `/2` | Sunday | An editorial listening room with paper textures, serif type, and illustrated station sleeves |
-| `/3` | Form | A Swiss-inspired workspace with quick listening presets and a prominent focus timer |
-| `/4` | Signal | A tactile stereo receiver with station memory keys and an illuminated frequency display |
-| `/5` | Afterglow | An immersive night player with a compact mixer and a workspace drawer |
+**Shape your sound** starts from a preset, then lets you choose up to three instruments, one vibe, one mood, and up to two effect textures. **Write a prompt** accepts up to 120 characters, with scene suggestions and an option to start from the builder's mix. Presets tune immediately; custom edits stay in a draft until **Apply sound** or **Use prompt** (also Cmd/Ctrl+Enter). Effects describe textures for generation. Drafts survive switching input modes. **Fine-tune the flow** holds the live style-match and variation dials. Keyboard shortcuts are **Space** for play/pause, **M** for mute, and **N** for a new take, outside interactive controls.
 
-**Shape your sound** is available in every current design. Start with a preset, then choose up to three instruments, one vibe, one mood, and up to two effect textures. **Write a prompt** accepts up to 120 characters, with scene suggestions and an option to start from the builder's mix. Presets tune immediately; custom edits stay in a draft until **Apply sound** or **Use prompt** (also Cmd/Ctrl+Enter). Effects describe textures for generation. Drafts survive switching input modes and navigating between designs. **Fine-tune the flow** holds the live style-match and variation dials.
-
-The new designs reuse the dot-matrix visualizer, animated cat, task list, timer, and audio engine. Their **Make it yours** panel provides three color stories per design, saved mixes (including applied recipes or manual prompts, dials, drums, and volume), workspace visibility settings, and a sleep timer. Preferences and saved mixes stay in this browser. Using the in-app design links keeps the current audio connection and mix running; tasks also persist between visits. Keyboard shortcuts are **Space** for play/pause, **M** for mute, and **N** for a new take, outside interactive controls. The bundled Instrument Serif and Manrope fonts include their OFL licenses in `frontend/public/fonts`.
-
-All five designs keep the dot-matrix artwork and a real 5x7 dot matrix face for the ambient marks. The original interface has six color themes; the new designs each have three color stories. Every palette drives the same eight-step dot ramp (`--dot-0` to `--dot-7`), which is what the two canvases paint with.
+The interface keeps the dot-matrix artwork and a real 5x7 dot matrix face for the ambient marks. Each of its six color themes drives the same eight-step dot ramp (`--dot-0` to `--dot-7`), which is what the two canvases paint with.
 
 The visualizer and cat draw **liquid ink on a dot matrix**. Each cell contributes to a shared density field: droplets deform before contact, their necks widen, and the gaps between cells gradually fill. Ink enters and leaves cells over time, with a slightly longer release. The surface renderer in `frontend/lib/liquid-ink.ts` fits curves to the field and its gradients on a small, fixed grid, reuses its buffers, and paints only the contours. The cursor trail and crisp cat markings use `frontend/lib/ink-render.ts`.
 
