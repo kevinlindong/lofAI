@@ -1,0 +1,94 @@
+/* Little doorways to other tools. Every mark uses the room's dot grid. */
+.task-heading, .task-heading-actions { display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; }
+.task-heading { flex-wrap: wrap; }
+.task-count { margin-left: 0.7rem; font-size: 0.7rem; }
+.task-heading-actions { margin-left: auto; }
+.task-connections { display: inline-flex; gap: 0.5rem; padding: 0.45rem 0.65rem; font-size: 0.7rem; }
+.task-clear { font-size: 0.67rem; color: var(--text-dim); }
+.task-list { min-height: 8rem; }
+.task-empty { display: grid; justify-items: start; gap: 0.6rem; padding: 1rem 0; color: var(--text-dim); font-size: 0.8rem; }
+.task-empty button { color: var(--accent-deep); font-size: 0.72rem; }
+.task-row { padding: 0.6rem 0; border-bottom: 1px solid var(--line-color); }
+.task-row:last-child { border-bottom: 0; }
+.task-row-main { display: flex; align-items: center; gap: 0.75rem; }
+.task-text { overflow-wrap: anywhere; line-height: 1.45; }
+.task-check { min-height: 1.5rem; }
+.task-check:disabled { opacity: 0.6; cursor: progress; }
+.task-remove { display: grid; place-items: center; min-width: 24px; min-height: 24px; }
+.task-source { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; margin: 0.35rem 0 0 1.45rem; color: var(--text-dim); font-size: 0.61rem; }
+.task-source a { color: var(--accent-deep); }
+.task-source button, .task-copy { margin-left: auto; }
+.task-source button { color: var(--accent-deep); }
+.task-message { color: var(--text-dim); font-size: 0.7rem; line-height: 1.5; }
+.task-workspace button:focus-visible, .task-workspace a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+
+.connections-dialog { position: fixed; inset: 0; margin: auto; padding: 0; width: min(850px, calc(100vw - 2rem)); max-height: min(850px, calc(100dvh - 2rem)); border: 1px solid var(--line-strong); border-radius: 1.7rem; color: var(--text); background: var(--bg); box-shadow: var(--shadow); overflow: hidden; }
+.connections-dialog[open] { display: flex; flex-direction: column; animation: connections-arrive 320ms var(--spring-snappy, ease); }
+.connections-dialog::backdrop { background: color-mix(in srgb, var(--bg-deep) 65%, transparent); backdrop-filter: blur(8px); }
+.connections-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; padding: 1.7rem 1.8rem 1.2rem; border-bottom: 1px solid var(--line-color); background: var(--surface); }
+.connections-header h2 { margin-top: 0.25rem; font-size: clamp(1.45rem, 3.5vw, 1.9rem); font-weight: 600; letter-spacing: -0.035em; }
+.connections-header p:last-child { margin-top: 0.45rem; color: var(--text-dim); font-size: 0.8rem; line-height: 1.5; }
+.connections-close { min-height: 36px; min-width: 36px; }
+.connections-body { padding: 1.2rem 1.8rem 1.5rem; overflow-y: auto; min-height: 0; }
+.connection-filters { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1.1rem; }
+.connection-filters button { border: 1px solid transparent; border-radius: 999px; padding: 0.4rem 0.7rem; color: var(--text-dim); font-size: 0.7rem; transition: color 150ms, background 150ms; }
+.connection-filters button[aria-pressed="true"] { color: var(--text); background: var(--surface-strong); border-color: var(--line-strong); }
+.connection-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.65rem; }
+.connection-card { position: relative; display: grid; grid-template-columns: 32px minmax(0, 1fr); align-items: center; gap: 0.5rem 0.9rem; text-align: left; padding: 1rem; min-height: 112px; border: 1px solid var(--line-color); border-radius: 1rem; background: var(--surface); transition: transform 220ms var(--spring-snappy, ease), border-color 180ms, background 180ms; }
+.connection-card:hover { transform: translateY(-2px); border-color: var(--accent); background: var(--surface-strong); }
+.connection-card:active { transform: translateY(0) scale(0.98); }
+.connection-card > [aria-hidden] { grid-row: span 2; color: var(--accent-deep); transition: transform 260ms var(--spring-bouncy, ease); }
+.connection-card:hover > [aria-hidden] { transform: rotate(-6deg) scale(1.08); }
+.connection-card strong { display: block; font-size: 0.85rem; font-weight: 580; }
+.connection-card-note { display: block; color: var(--text-dim); font-size: 0.7rem; line-height: 1.45; margin-top: 0.25rem; }
+.connection-badge { display: inline-flex; align-items: center; justify-self: start; gap: 0.35rem; font-size: 0.61rem; color: var(--text-dim); }
+.connection-badge::before { content: ""; width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+.connection-badge.is-connected { color: var(--good); }
+.connection-footnote { font-size: 0.71rem; line-height: 1.6; color: var(--text-dim); margin: 1.2rem 0 0; }
+.connection-back { font-size: 0.76rem; color: var(--text-dim); padding: 0.25rem 0 0.8rem; }
+.connection-detail { display: grid; gap: 1rem; }
+.connection-detail-title { display: flex; align-items: center; gap: 1rem; padding: 0.5rem 0; }
+.connection-detail-title > [aria-hidden] { color: var(--accent-deep); }
+.connection-detail-title h3 { font-size: 1.2rem; font-weight: 600; }
+.connection-detail-title p { font-size: 0.78rem; margin-top: 0.25rem; color: var(--text-dim); }
+.connection-form, .connection-browser { display: grid; gap: 0.9rem; }
+.connection-form label, .connection-source-row label { display: grid; gap: 0.45rem; font-size: 0.76rem; color: var(--text-dim); min-width: 0; }
+.connections-dialog input:not([type="checkbox"]), .connections-dialog select { width: 100%; min-width: 0; border: 1px solid var(--line-strong); border-radius: 0.65rem; padding: 0.65rem 0.8rem; background: var(--surface-strong); color: var(--text); font-size: 0.82rem; }
+.connections-dialog input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; flex-shrink: 0; }
+.connection-primary { justify-self: start; padding: 0.65rem 1rem; font-size: 0.77rem; }
+.connection-hint, .connection-notice, .connection-error, .connection-progress, .connection-empty { font-size: 0.76rem; line-height: 1.6; color: var(--text-dim); overflow-wrap: anywhere; }
+.connection-hint a, .connection-hint button, .connection-notice button { color: var(--accent-deep); text-decoration: underline; text-underline-offset: 3px; }
+.connection-notice, .connection-error { padding: 0.8rem 1rem; border: 1px solid var(--line-color); border-radius: 0.8rem; background: var(--surface-soft); }
+.connection-error { border-color: var(--bad); color: var(--text); }
+.connection-connected, .connection-selection { display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; }
+.connection-connected button { color: var(--text-dim); text-decoration: underline; text-underline-offset: 3px; }
+.connection-selection button, .connection-more { color: var(--accent-deep); }
+.connection-source-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 0.75rem; }
+.connection-source-row > button { padding: 0.65rem 1rem; min-height: 40px; font-size: 0.75rem; }
+.connection-items { max-height: 300px; overflow-y: auto; border: 1px solid var(--line-color); border-radius: 0.8rem; padding: 0.35rem 0.8rem; margin: 0; list-style: none; }
+.connection-items li { display: flex; gap: 0.75rem; justify-content: space-between; align-items: center; padding: 0.75rem 0; border-bottom: 1px solid var(--line-color); font-size: 0.8rem; overflow-wrap: anywhere; }
+.connection-items li:last-child { border-bottom: 0; }
+.connection-items label { display: flex; align-items: center; gap: 0.7rem; flex: 1; min-width: 0; cursor: pointer; }
+.connection-items small { display: block; margin-top: 0.2rem; color: var(--text-dim); font-size: 0.66rem; }
+.connection-items a { color: var(--accent-deep); padding: 0.3rem; }
+.connection-item-done { text-decoration: line-through; color: var(--text-dim); }
+.connection-sync { display: flex; gap: 0.6rem; align-items: center; font-size: 0.76rem; }
+.connection-more { padding: 0.5rem; font-size: 0.73rem; }
+.connection-export-row { display: flex; flex-wrap: wrap; gap: 0.65rem; }
+.connection-export-row .key { padding: 0.6rem 0.85rem; font-size: 0.75rem; }
+.connections-dialog :is(button, a, input, select):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.connections-dialog button:disabled { opacity: 0.45; cursor: not-allowed; }
+@keyframes connections-arrive { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: none; } }
+@media (max-width: 600px) {
+  .connections-dialog { width: calc(100vw - 1rem); max-height: calc(100dvh - 1rem); border-radius: 1.2rem; }
+  .connections-header { padding: 1.2rem; }
+  .connections-body { padding: 1rem; }
+  .connection-grid { grid-template-columns: 1fr; }
+  .connection-card { min-height: 100px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .connections-dialog[open] { animation: none; }
+  .connection-card:hover, .connection-card:active, .connection-card:hover > [aria-hidden] { transform: none; }
+}
+html.low-power .connections-dialog[open] { animation: none; }
+html.low-power .connections-dialog::backdrop { backdrop-filter: none; }

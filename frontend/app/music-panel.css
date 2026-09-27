@@ -357,20 +357,31 @@
 .write-toggle-back { transform: rotate(90deg); }
 .write-toggle:hover .write-toggle-back { transform: rotate(90deg) translateY(-2px); }
 
-/* new take: a die that spins once per roll and tumbles while the take lands */
-.die {
+/* A dotted arrow winds up on approach and circles while the next take arrives. */
+.refresh-orbit {
   display: inline-grid;
-  width: 1.2rem;
-  height: 1.2rem;
+  flex: 0 0 auto;
+  width: 1.65rem;
+  height: 1.65rem;
   place-items: center;
-  border: 1px solid currentColor;
-  border-radius: 0.3rem;
-  animation: die-roll var(--spring-bouncy-ms) var(--spring-bouncy);
+  border-radius: 50%;
+  transition: background-color 160ms ease, transform var(--spring-bouncy-ms) var(--spring-bouncy);
 }
-.reroll:disabled .die { animation: none; }
+.refresh-arrow { transition: transform var(--spring-bouncy-ms) var(--spring-bouncy); }
+.reroll:is(:hover, :focus-visible):not(:disabled) .refresh-orbit {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  transform: scale(1.12);
+}
+.reroll:is(:hover, :focus-visible):not(:disabled) .refresh-arrow { transform: rotate(65deg); }
+.reroll:active:not(:disabled) .refresh-orbit { transform: scale(0.92); }
+.reroll:focus-visible {
+  outline: 2px dotted var(--accent);
+  outline-offset: 4px;
+  border-radius: 0.35rem;
+}
 .reroll.is-rolling { opacity: 1; }
-.reroll.is-rolling .die { animation: die-tumble 700ms linear infinite; }
-.reroll:hover:not(:disabled) .die { transform: rotate(-14deg); transition: transform var(--spring-bouncy-ms) var(--spring-bouncy); }
+.reroll.is-rolling .refresh-orbit { color: var(--accent-deep); }
+.reroll.is-rolling .refresh-arrow { animation: take-refresh 1600ms linear infinite; }
 
 /* ── fine dials ────────────────────────────────────────────────────────── */
 
@@ -382,6 +393,8 @@
   border-top: 1px solid var(--line-color);
 }
 .fine-dial { --at: 50%; min-width: 0; }
+.fine-dial.is-disabled { opacity: 0.4; }
+.fine-dial.is-disabled .fine-dial-rail { cursor: not-allowed; }
 .fine-dial-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; font-size: 0.7rem; line-height: 1.2; }
 .fine-dial-label { flex-shrink: 0; color: var(--text-dim); }
 .fine-dial-readout { display: inline-flex; min-width: 0; align-items: baseline; gap: 0.4rem; overflow: hidden; white-space: nowrap; }
@@ -472,7 +485,7 @@
     height var(--spring-jelly-ms) var(--spring-jelly),
     box-shadow 200ms ease;
 }
-.fine-dial-rail:hover .fine-dial-thumb { width: 14px; }
+.fine-dial:not(.is-disabled) .fine-dial-rail:hover .fine-dial-thumb { width: 14px; }
 /* grabbed: glide to the pointer, squash, and lean with no lag */
 .fine-dial.is-held .fine-dial-thumb {
   width: 20px;
@@ -483,7 +496,8 @@
 .fine-dial.is-dragging .fine-dial-fill { transition: none; }
 /* scrubbing finely, the thumb narrows to a needle */
 .fine-dial.is-fine .fine-dial-thumb { width: 2px; height: 18px; box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 55%, transparent); }
-.sound-panel .fine-dial-rail:focus-visible { outline: none; }
+.sound-panel .fine-dial-rail:focus-visible,
+.fine-dial-rail:focus-visible { outline: none; }
 .fine-dial-rail:focus-visible .fine-dial-thumb { box-shadow: 0 0 0 3px var(--surface-strong), 0 0 0 5px var(--accent); }
 
 /* ── motion ────────────────────────────────────────────────────────────── */
@@ -518,8 +532,7 @@
   30% { transform: scaleY(2.4); }
   100% { transform: scaleY(1); }
 }
-@keyframes die-roll { from { transform: rotate(-270deg) scale(0.7); } }
-@keyframes die-tumble { to { transform: rotate(360deg); } }
+@keyframes take-refresh { to { transform: rotate(360deg); } }
 
 @media (max-width: 640px) {
   .stations { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); justify-self: stretch; }
@@ -531,12 +544,16 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sound-panel *, .sound-panel *::before, .music-panel .play-key { animation: none !important; transition-duration: 0.01ms !important; }
+  .sound-panel *, .sound-panel *::before, .music-panel .play-key,
+  .fine-dial *, .fine-dial *::before { animation: none !important; transition-duration: 0.01ms !important; }
+  .fine-dial-thumb { transform: translate(-50%, -50%); }
+  .reroll:is(:hover, :focus-visible, :active):not(:disabled) .refresh-orbit,
+  .reroll:is(:hover, :focus-visible):not(:disabled) .refresh-arrow { transform: none; }
 }
 
 /* Short, interaction-driven motion stays in low power; the loops stop. */
 html.low-power .word:hover,
-html.low-power .reroll.is-rolling .die,
+html.low-power .reroll.is-rolling .refresh-arrow,
 html.low-power .panel-state.is-tuning::before {
   animation: none;
 }

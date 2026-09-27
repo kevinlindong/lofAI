@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react"
 import { DotGlyph } from "@/components/dot-glyph"
-import { DotSlider } from "@/components/dot-slider"
+import { FineDial } from "@/components/fine-dial"
 
 interface PomodoroTimerProps {
   onRunningChange: (running: boolean) => void
@@ -44,8 +44,8 @@ export function PomodoroTimer({ onRunningChange }: PomodoroTimerProps) {
   }, [])
 
   useEffect(() => {
-    onRunningChange(isRunning)
-  }, [isRunning, onRunningChange])
+    onRunningChange(isRunning && !isBreak)
+  }, [isRunning, isBreak, onRunningChange])
 
   useEffect(() => {
     if (!isRunning) return
@@ -135,24 +135,26 @@ export function PomodoroTimer({ onRunningChange }: PomodoroTimerProps) {
       </div>
 
       <div className="grid grid-cols-2 gap-x-5 gap-y-3">
-        <DotSlider
+        <FineDial
           label="Work"
-          readout={`${workDuration}m`}
+          formatValue={(minutes) => `${minutes} min`}
           value={workDuration}
           min={1}
           max={60}
-          segments={10}
+          neutral={25}
           disabled={isRunning}
+          disabledReason="Pause the timer to adjust"
           onChange={(v) => setPhaseDuration(v, false)}
         />
-        <DotSlider
+        <FineDial
           label="Rest"
-          readout={`${breakDuration}m`}
+          formatValue={(minutes) => `${minutes} min`}
           value={breakDuration}
           min={1}
           max={30}
-          segments={10}
+          neutral={5}
           disabled={isRunning}
+          disabledReason="Pause the timer to adjust"
           onChange={(v) => setPhaseDuration(v, true)}
         />
       </div>

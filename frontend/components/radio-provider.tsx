@@ -86,7 +86,7 @@ function useRadioState() {
     const handleKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement
       if (event.repeat || event.metaKey || event.ctrlKey || event.altKey ||
-        target.closest("input, textarea, select, button, a, summary, [contenteditable], dialog")) return
+        target.closest('input, textarea, select, button, a, summary, [role="slider"], [contenteditable], dialog')) return
       if (event.code === "Space") { event.preventDefault(); void togglePlayback() }
       if (event.key.toLowerCase() === "m") toggleMute()
       if (event.key.toLowerCase() === "n" && wantsAudio && !streamState.variationPending) requestVariation()

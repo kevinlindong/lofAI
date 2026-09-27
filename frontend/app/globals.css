@@ -1122,7 +1122,11 @@
   }
 
   .site-shell .companion-card {
-    padding: clamp(0.75rem, 1.5vw, 1rem);
+    width: min(100%, 11rem);
+    align-self: center;
+    justify-self: center;
+    padding: 0.45rem;
+    border-radius: 1.4rem;
   }
 
   .site-shell .pet-stage {

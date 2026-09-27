@@ -50,29 +50,6 @@ const styleWord = inBands(["loose", "relaxed", "balanced", "close", "strict"])
 const variationWord = inBands(["steady", "settled", "balanced", "wandering", "adventurous"])
 const volumeWord = (value: number) => (value === 0 ? "muted" : "")
 
-const DIE_FACES = ["die1", "die2", "die3", "die4", "die5", "die6"] as const
-
-// The die spins once per roll and keeps tumbling through faces while the new
-// take is on its way, then lands on one at random.
-function Die({ rolls, rolling }: { rolls: number; rolling: boolean }) {
-  const [face, setFace] = useState(4)
-  useEffect(() => {
-    if (rolls === 0) return
-    const tumble = window.setInterval(() => setFace((current) => (current + 1 + Math.floor(Math.random() * 5)) % 6), 110)
-    if (rolling) return () => window.clearInterval(tumble)
-    const land = window.setTimeout(() => {
-      window.clearInterval(tumble)
-      setFace(Math.floor(Math.random() * 6))
-    }, 520)
-    return () => { window.clearInterval(tumble); window.clearTimeout(land) }
-  }, [rolls, rolling])
-  return (
-    <span key={rolls} className="die" aria-hidden>
-      <DotGlyph name={DIE_FACES[face]} dot={2} />
-    </span>
-  )
-}
-
 // A word in the sentence that opens its tray. A span rather than a button so
 // long choices wrap with the line like the rest of the text.
 function Word({ label, text, open, ghost, pressed, charge, trayId, onToggle, wordRef }: {
@@ -121,7 +98,6 @@ export function SoundPanel() {
   const [edited, setEdited] = useState<{ slot: Slot; count: number } | null>(null)
   const [tunedAt, setTunedAt] = useState(0)
   const [refused, setRefused] = useState<{ id: string; count: number } | null>(null)
-  const [rolls, setRolls] = useState(0)
   const rolling = streamState.variationPending
 
   const { mode, recipe, prompt } = soundDraft
@@ -355,13 +331,15 @@ export function SoundPanel() {
             <button
               type="button"
               className={`foot-action reroll${rolling ? " is-rolling" : ""}`}
-              onClick={() => { setRolls((count) => count + 1); requestVariation() }}
+              onClick={requestVariation}
               disabled={!wantsAudio || rolling}
               aria-label="Skip to a new music variation"
               title="Same sound, a new take"
             >
-              <Die rolls={rolls} rolling={rolling} />
-              {rolling ? "rolling…" : "new take"}
+              <span className="refresh-orbit" aria-hidden>
+                <DotGlyph name="refresh" dot={1} className="refresh-arrow" />
+              </span>
+              {rolling ? "finding a take…" : "new take"}
             </button>
             <button type="button" className="foot-action write-toggle" onClick={() => switchMode(mode === "builder" ? "prompt" : "builder")}>
               <DotGlyph name={mode === "builder" ? "pen" : "chevron"} dot={1} className={mode === "builder" ? "write-toggle-pen" : "write-toggle-back"} />

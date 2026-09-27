@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "node test/worklet.test.mjs && node test/mrt-stream.test.mjs && node test/sound-recipe.test.mjs && node test/ink-render.test.mjs && node test/animation.test.mjs"
+    "test": "node test/worklet.test.mjs && node test/mrt-stream.test.mjs && node test/sound-recipe.test.mjs && node test/ink-render.test.mjs && node test/animation.test.mjs && node test/task-files.test.mjs"
   },
   "dependencies": {
     "@types/node": "20.4.5",

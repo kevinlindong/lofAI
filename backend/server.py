@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import engine as engine_mod
 import session_manager as manager_mod
 import styles
+from integrations import router as integrations_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -70,6 +71,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+app.include_router(integrations_router)
 
 app.add_middleware(
     CORSMiddleware,

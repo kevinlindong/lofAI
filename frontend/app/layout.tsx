@@ -1,5 +1,6 @@
 import "./globals.css"
 import "./music-panel.css"
+import "./integrations.css"
 import localFont from "next/font/local"
 import type React from "react"
 import { THEME_INIT_SCRIPT } from "@/lib/themes"

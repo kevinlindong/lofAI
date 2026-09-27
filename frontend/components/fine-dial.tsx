@@ -1,15 +1,19 @@
 "use client"
 
-import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react"
+import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react"
 import { RollingText } from "@/components/rolling-text"
 
 interface FineDialProps {
   label: string
-  // 0..100
   value: number
   onChange: (value: number) => void
+  min?: number
+  max?: number
+  disabled?: boolean
+  disabledReason?: string
+  formatValue?: (value: number) => string
   // the dial's word for a value, shown beside the number
-  describe: (value: number) => string
+  describe?: (value: number) => string
   // where a double-click returns to, marked on the rail; the fill grows from
   // here, and a coarse drag clicks into it
   neutral?: number
@@ -28,22 +32,67 @@ type Speed = 1 | 0.25 | 0.1
 
 const clamp = (value: number) => Math.max(0, Math.min(100, value))
 
-export function FineDial({ label, value, onChange, describe, neutral }: FineDialProps) {
+export function FineDial({ label, value, onChange, describe, neutral, min = 0, max = 100, disabled = false, disabledReason, formatValue }: FineDialProps) {
   const id = useId()
   const railRef = useRef<HTMLDivElement>(null)
   const thumbRef = useRef<HTMLSpanElement>(null)
   // the unrounded position, so slow drags still move between whole numbers
-  const drag = useRef<{ x: number; t: number; exact: number; moved: boolean } | null>(null)
+  const drag = useRef<{ pointerId: number; x: number; t: number; exact: number; moved: boolean } | null>(null)
   // how far the thumb leans into the drag, -1..1, eased toward `leanTarget`
   const lean = useRef({ now: 0, target: 0, frame: 0 })
+  const reducedMotion = useRef(false)
   const [speed, setSpeed] = useState<Speed | null>(null)
   const [moving, setMoving] = useState(false)
   const [clicks, setClicks] = useState(0)
 
-  useEffect(() => () => cancelAnimationFrame(lean.current.frame), [])
+  const endDrag = useCallback(() => {
+    const pointerId = drag.current?.pointerId
+    drag.current = null
+    setSpeed(null)
+    setMoving(false)
+    cancelAnimationFrame(lean.current.frame)
+    lean.current.frame = 0
+    // let go: the lean springs back upright through the CSS transition
+    lean.current.target = 0
+    lean.current.now = 0
+    thumbRef.current?.style.setProperty("--lean", "0")
+    if (pointerId !== undefined && railRef.current?.hasPointerCapture(pointerId)) {
+      railRef.current.releasePointerCapture(pointerId)
+    }
+  }, [])
+
+  useEffect(() => {
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)")
+    const state = lean.current
+    const updateMotion = () => {
+      reducedMotion.current = preference.matches
+      if (preference.matches) {
+        cancelAnimationFrame(state.frame)
+        state.frame = 0
+        state.now = 0
+        state.target = 0
+        thumbRef.current?.style.setProperty("--lean", "0")
+      }
+    }
+    updateMotion()
+    preference.addEventListener("change", updateMotion)
+    return () => {
+      preference.removeEventListener("change", updateMotion)
+      cancelAnimationFrame(state.frame)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (disabled) endDrag()
+  }, [disabled, endDrag])
+
+  const toPercent = (number: number) => clamp(((number - min) / (max - min)) * 100)
+  const fromPercent = (percent: number) => min + (percent / 100) * (max - min)
+  const neutralPosition = neutral === undefined ? undefined : toPercent(neutral)
 
   const commit = (next: number) => {
-    const rounded = Math.round(clamp(next))
+    if (disabled) return
+    const rounded = Math.max(min, Math.min(max, Math.round(next)))
     if (rounded !== value) onChange(rounded)
   }
 
@@ -64,20 +113,21 @@ export function FineDial({ label, value, onChange, describe, neutral }: FineDial
   }
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return
+    if (disabled || event.button !== 0 || !event.isPrimary || drag.current) return
+    event.currentTarget.focus({ preventScroll: true })
     event.currentTarget.setPointerCapture(event.pointerId)
     const exact = positionAt(event.clientX)
-    drag.current = { x: event.clientX, t: event.timeStamp, exact, moved: false }
+    drag.current = { pointerId: event.pointerId, x: event.clientX, t: event.timeStamp, exact, moved: false }
     setSpeed(1)
     // the first press glides the thumb to the pointer; after that it follows
-    commit(exact)
+    commit(fromPercent(exact))
     cancelAnimationFrame(lean.current.frame)
-    lean.current.frame = requestAnimationFrame(animateLean)
+    if (!reducedMotion.current) lean.current.frame = requestAnimationFrame(animateLean)
   }
 
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
     const state = drag.current
-    if (!state) return
+    if (disabled || !state || event.pointerId !== state.pointerId) return
     const rect = railRef.current!.getBoundingClientRect()
     const away = Math.abs(event.clientY - (rect.top + rect.height / 2))
     const next: Speed = away > FINER_DISTANCE ? 0.1 : away > FINE_DISTANCE || event.shiftKey ? 0.25 : 1
@@ -91,32 +141,26 @@ export function FineDial({ label, value, onChange, describe, neutral }: FineDial
     if (next !== speed) setSpeed(next)
 
     let target = state.exact
-    if (next === 1 && neutral !== undefined && Math.abs(state.exact - neutral) <= DETENT) {
-      target = neutral
+    if (next === 1 && neutralPosition !== undefined && Math.abs(state.exact - neutralPosition) <= DETENT) {
+      target = neutralPosition
       if (value !== neutral) {
         setClicks((count) => count + 1)
         navigator.vibrate?.(6)
       }
     }
-    commit(target)
+    commit(fromPercent(target))
   }
 
-  const endDrag = () => {
-    if (!drag.current) return
-    drag.current = null
-    setSpeed(null)
-    setMoving(false)
-    // let go: the lean springs back upright through the CSS transition
-    lean.current.target = 0
-    lean.current.now = 0
-    thumbRef.current?.style.setProperty("--lean", "0")
+  const onPointerEnd = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.pointerId === drag.current?.pointerId) endDrag()
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (disabled) return
     const step = event.shiftKey ? 10 : 1
     const next = {
       ArrowLeft: value - step, ArrowDown: value - step, ArrowRight: value + step, ArrowUp: value + step,
-      PageDown: value - 10, PageUp: value + 10, Home: 0, End: 100,
+      PageDown: value - 10, PageUp: value + 10, Home: min, End: max,
     }[event.key]
     if (next === undefined) return
     event.preventDefault()
@@ -124,20 +168,23 @@ export function FineDial({ label, value, onChange, describe, neutral }: FineDial
   }
 
   const reset = () => {
-    if (neutral === undefined || value === neutral) return
+    if (disabled || neutral === undefined || value === neutral) return
     commit(neutral)
     setClicks((count) => count + 1)
   }
 
-  const from = neutral ?? 0
+  const position = toPercent(value)
+  const from = neutralPosition ?? 0
   const style = {
-    "--at": `${value}%`,
-    "--fill-start": `${Math.min(from, value)}%`,
-    "--fill-size": `${Math.abs(value - from)}%`,
+    "--at": `${position}%`,
+    "--fill-start": `${Math.min(from, position)}%`,
+    "--fill-size": `${Math.abs(position - from)}%`,
   } as CSSProperties
-  const word = describe(value)
+  const word = describe?.(value) ?? ""
+  const readout = formatValue?.(value) ?? `${value}`
   const state = [
     "fine-dial",
+    disabled && "is-disabled",
     speed && "is-held",
     moving && "is-dragging",
     speed && speed < 1 && "is-fine",
@@ -151,25 +198,26 @@ export function FineDial({ label, value, onChange, describe, neutral }: FineDial
         <span className="fine-dial-readout" aria-hidden>
           {speed && speed < 1 && <span className="fine-dial-speed">{speed === 0.25 ? "fine" : "finer"}</span>}
           {word && <span className="fine-dial-word"><RollingText text={word} /></span>}
-          <span className="fine-dial-value">{value}</span>
+          <span className="fine-dial-value">{readout}</span>
         </span>
       </div>
       <div
         ref={railRef}
         className="fine-dial-rail"
         role="slider"
-        tabIndex={0}
+        tabIndex={disabled ? -1 : 0}
         aria-labelledby={`${id}-label`}
-        aria-valuemin={0}
-        aria-valuemax={100}
+        aria-disabled={disabled || undefined}
+        aria-valuemin={min}
+        aria-valuemax={max}
         aria-valuenow={value}
-        aria-valuetext={word ? `${value}, ${word}` : `${value}`}
-        title={neutral === undefined ? "Drag away from the line for finer steps" : "Drag away from the line for finer steps · double-click to reset"}
+        aria-valuetext={word ? `${readout}, ${word}` : readout}
+        title={disabled ? disabledReason : neutral === undefined ? "Drag away from the line for finer steps" : "Drag away from the line for finer steps · double-click to reset"}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-        onLostPointerCapture={endDrag}
+        onPointerUp={onPointerEnd}
+        onPointerCancel={onPointerEnd}
+        onLostPointerCapture={onPointerEnd}
         onKeyDown={onKeyDown}
         onDoubleClick={reset}
       >
@@ -177,9 +225,9 @@ export function FineDial({ label, value, onChange, describe, neutral }: FineDial
         <span className="fine-dial-fill" aria-hidden />
         <span className="fine-dial-comb" aria-hidden />
         <span className="fine-dial-ticks" aria-hidden>
-          {TICKS.map((tick) => <i key={tick} style={{ left: `${tick}%` }} data-on={(tick >= Math.min(from, value) && tick <= Math.max(from, value)) || undefined} />)}
+          {TICKS.map((tick) => <i key={tick} style={{ left: `${tick}%` }} data-on={(tick >= Math.min(from, position) && tick <= Math.max(from, position)) || undefined} />)}
         </span>
-        {neutral !== undefined && <span key={clicks} className="fine-dial-notch" style={{ left: `${neutral}%` }} data-clicked={clicks > 0 || undefined} aria-hidden />}
+        {neutralPosition !== undefined && <span key={clicks} className="fine-dial-notch" style={{ left: `${neutralPosition}%` }} data-clicked={clicks > 0 || undefined} aria-hidden />}
         <span ref={thumbRef} className="fine-dial-thumb" aria-hidden />
       </div>
     </div>
