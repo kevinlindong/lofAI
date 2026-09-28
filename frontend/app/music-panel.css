@@ -392,7 +392,7 @@
   padding-top: clamp(1rem, 2vw, 1.35rem);
   border-top: 1px solid var(--line-color);
 }
-.fine-dial { --at: 50%; min-width: 0; }
+.fine-dial { --at: 50%; --position: 0.5; min-width: 0; }
 .fine-dial.is-disabled { opacity: 0.4; }
 .fine-dial.is-disabled .fine-dial-rail { cursor: not-allowed; }
 .fine-dial-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; font-size: 0.7rem; line-height: 1.2; }
@@ -404,6 +404,7 @@
 .fine-dial-speed { color: var(--accent-deep); font-size: 0.6rem; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; animation: pop-in var(--spring-bouncy-ms) var(--spring-bouncy) backwards; }
 .fine-dial-rail {
   position: relative;
+  container-type: inline-size;
   height: 1.6rem;
   margin: 0.2rem 0 0;
   border-radius: 0.4rem;
@@ -417,13 +418,17 @@
 .fine-dial-track { top: 50%; height: 1px; background: var(--line-strong); }
 .fine-dial-fill {
   top: calc(50% - 1px);
-  left: var(--fill-start);
+  left: var(--fill-origin);
   right: auto;
-  width: var(--fill-size);
+  width: 100%;
   height: 3px;
   border-radius: 3px;
   background: var(--accent);
-  transition: left var(--spring-snappy-ms) var(--spring-snappy), width var(--spring-snappy-ms) var(--spring-snappy);
+  /* A signed scale crosses zero at neutral. Its animated end stays with the
+     thumb, even when a new click reverses an unfinished spring. */
+  transform-origin: 0 50%;
+  transform: scaleX(var(--fill-scale));
+  transition: transform var(--spring-snappy-ms) var(--spring-snappy);
 }
 .fine-dial-ticks { top: calc(50% + 6px); height: 2px; }
 .fine-dial-ticks > i {
@@ -463,14 +468,27 @@
   transition: opacity 180ms ease, transform var(--spring-bouncy-ms) var(--spring-bouncy);
 }
 .fine-dial.is-fine .fine-dial-comb { opacity: 1; transform: none; }
+/* Position and fill both animate transforms, keeping their frames in sync.
+   The zero-width wrapper travels in rail units without adding scroll overflow;
+   its child can still squash and lean independently. */
+.fine-dial-position {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  transform: translateX(calc(var(--position) * 100cqw));
+  transition: transform var(--spring-snappy-ms) var(--spring-snappy);
+}
 /* The thumb: glides on a spring when set by key or double-click, follows the
-   hand exactly while dragged, squashes when grabbed, leans into fast drags
+   hand with a short easing while dragged, squashes when grabbed, leans into fast drags
    (--lean, set per frame from the drag speed), and wobbles upright on release. */
 .fine-dial-thumb {
   --lean: 0;
   position: absolute;
-  top: 50%;
-  left: var(--at);
+  top: 0;
+  left: 0;
   width: 11px;
   height: 11px;
   border-radius: 999px;
@@ -479,7 +497,6 @@
   transform: translate(-50%, -50%) skewX(calc(var(--lean) * -22deg)) scaleX(calc(1 + max(var(--lean), var(--lean) * -1) * 0.55));
   pointer-events: none;
   transition:
-    left var(--spring-snappy-ms) var(--spring-snappy),
     transform var(--spring-jelly-ms) var(--spring-jelly),
     width var(--spring-jelly-ms) var(--spring-jelly),
     height var(--spring-jelly-ms) var(--spring-jelly),
@@ -490,10 +507,13 @@
 .fine-dial.is-held .fine-dial-thumb {
   width: 20px;
   height: 9px;
-  transition: left var(--spring-snappy-ms) var(--spring-snappy), width 240ms var(--spring-snappy), height 240ms var(--spring-snappy), box-shadow 200ms ease;
+  transition: width 240ms var(--spring-snappy), height 240ms var(--spring-snappy), box-shadow 200ms ease;
 }
-.fine-dial.is-dragging .fine-dial-thumb { transition: width 240ms var(--spring-snappy), height 240ms var(--spring-snappy), box-shadow 200ms ease; }
-.fine-dial.is-dragging .fine-dial-fill { transition: none; }
+/* Never remove positional transitions: doing so cancels an in-flight click
+   and teleports to its target when the hand first moves. Thumb and fill use
+   the same duration/easing so they stay together through every retarget. */
+.fine-dial.is-dragging .fine-dial-position,
+.fine-dial.is-dragging .fine-dial-fill { transition: transform 80ms ease-out; }
 /* scrubbing finely, the thumb narrows to a needle */
 .fine-dial.is-fine .fine-dial-thumb { width: 2px; height: 18px; box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 55%, transparent); }
 .sound-panel .fine-dial-rail:focus-visible,

@@ -24,6 +24,9 @@ interface FineDialProps {
 // Shift does the same from anywhere.
 const FINE_DISTANCE = 28
 const FINER_DISTANCE = 84
+// A click often includes a pixel or two of hand movement. Keep its spring
+// running until the pointer has deliberately moved away from the press.
+const DRAG_DISTANCE = 4
 // how close a coarse drag has to come to neutral to click into it
 const DETENT = 2
 const TICKS = Array.from({ length: 11 }, (_, i) => i * 10)
@@ -37,7 +40,7 @@ export function FineDial({ label, value, onChange, describe, neutral, min = 0, m
   const railRef = useRef<HTMLDivElement>(null)
   const thumbRef = useRef<HTMLSpanElement>(null)
   // the unrounded position, so slow drags still move between whole numbers
-  const drag = useRef<{ pointerId: number; x: number; t: number; exact: number; moved: boolean } | null>(null)
+  const drag = useRef<{ pointerId: number; startX: number; startY: number; x: number; t: number; exact: number; moved: boolean } | null>(null)
   // how far the thumb leans into the drag, -1..1, eased toward `leanTarget`
   const lean = useRef({ now: 0, target: 0, frame: 0 })
   const reducedMotion = useRef(false)
@@ -117,7 +120,7 @@ export function FineDial({ label, value, onChange, describe, neutral, min = 0, m
     event.currentTarget.focus({ preventScroll: true })
     event.currentTarget.setPointerCapture(event.pointerId)
     const exact = positionAt(event.clientX)
-    drag.current = { pointerId: event.pointerId, x: event.clientX, t: event.timeStamp, exact, moved: false }
+    drag.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, x: event.clientX, t: event.timeStamp, exact, moved: false }
     setSpeed(1)
     // the first press glides the thumb to the pointer; after that it follows
     commit(fromPercent(exact))
@@ -133,11 +136,15 @@ export function FineDial({ label, value, onChange, describe, neutral, min = 0, m
     const next: Speed = away > FINER_DISTANCE ? 0.1 : away > FINE_DISTANCE || event.shiftKey ? 0.25 : 1
     const dx = event.clientX - state.x
     const dt = Math.max(1, event.timeStamp - state.t)
-    lean.current.target = Math.max(-1, Math.min(1, (dx / dt) * 0.9))
     state.exact = next === 1 ? positionAt(event.clientX) : clamp(state.exact + (dx / rect.width) * 100 * next)
     state.x = event.clientX
     state.t = event.timeStamp
-    if (!state.moved && dx !== 0) { state.moved = true; setMoving(true) }
+    if (!state.moved) {
+      if (Math.hypot(event.clientX - state.startX, event.clientY - state.startY) < DRAG_DISTANCE) return
+      state.moved = true
+      setMoving(true)
+    }
+    lean.current.target = Math.max(-1, Math.min(1, (dx / dt) * 0.9))
     if (next !== speed) setSpeed(next)
 
     let target = state.exact
@@ -177,8 +184,9 @@ export function FineDial({ label, value, onChange, describe, neutral, min = 0, m
   const from = neutralPosition ?? 0
   const style = {
     "--at": `${position}%`,
-    "--fill-start": `${Math.min(from, position)}%`,
-    "--fill-size": `${Math.abs(position - from)}%`,
+    "--position": position / 100,
+    "--fill-origin": `${from}%`,
+    "--fill-scale": (position - from) / 100,
   } as CSSProperties
   const word = describe?.(value) ?? ""
   const readout = formatValue?.(value) ?? `${value}`
@@ -228,7 +236,9 @@ export function FineDial({ label, value, onChange, describe, neutral, min = 0, m
           {TICKS.map((tick) => <i key={tick} style={{ left: `${tick}%` }} data-on={(tick >= Math.min(from, position) && tick <= Math.max(from, position)) || undefined} />)}
         </span>
         {neutralPosition !== undefined && <span key={clicks} className="fine-dial-notch" style={{ left: `${neutralPosition}%` }} data-clicked={clicks > 0 || undefined} aria-hidden />}
-        <span ref={thumbRef} className="fine-dial-thumb" aria-hidden />
+        <span className="fine-dial-position" aria-hidden>
+          <span ref={thumbRef} className="fine-dial-thumb" />
+        </span>
       </div>
     </div>
   )
