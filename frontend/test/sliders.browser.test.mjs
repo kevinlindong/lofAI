@@ -269,6 +269,29 @@ test("touch taps use the same gliding position and attached fill", async () => {
   } finally { await touchPage.context().close() }
 })
 
+test("a click keeps the focus ring off until the keys take over", async () => {
+  // the ring's 5px spread, read once the shadow's own transition has run
+  const ring = async slider => {
+    await page.waitForTimeout(300)
+    return slider.evaluate(element => /\b0px 0px 0px 5px\b/.test(getComputedStyle(element.querySelector(".fine-dial-thumb")).boxShadow))
+  }
+  for (const name of names.filter(entry => entry !== "Work" && entry !== "Rest")) {
+    const slider = rail(page, name)
+    // a Tab first, so a scripted focus on the click would otherwise light it
+    await slider.focus()
+    await page.keyboard.press("Tab")
+    await click(page, slider, 0.4)
+    await settle(slider)
+    assert.equal(await ring(slider), false, `${name}: a click must not light the keyboard ring`)
+    await page.keyboard.press("ArrowRight")
+    await settle(slider)
+    assert.equal(await ring(slider), true, `${name}: the first key after a click must show the ring`)
+    await page.keyboard.press("Shift+Tab")
+    await page.keyboard.press("Tab")
+    assert.equal(await ring(slider), true, `${name}: tabbing in shows the ring`)
+  }
+})
+
 test("reduced motion updates directly while keeping thumb and fill aligned", async () => {
   await page.emulateMedia({ reducedMotion: "reduce" })
   try {

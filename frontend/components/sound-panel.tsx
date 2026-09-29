@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react"
+import { memo, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react"
 import { DotGlyph } from "@/components/dot-glyph"
 import { FineDial } from "@/components/fine-dial"
 import { RollingText } from "@/components/rolling-text"
@@ -9,7 +9,7 @@ import { useRadio } from "@/components/radio-provider"
 import { MAX_CUSTOM_PROMPT_CHARS } from "@/lib/mrt-stream"
 import {
   buildSoundPrompt, CUSTOM_STATION, EFFECTS, INSTRUMENTS, MAX_EFFECTS, MAX_INSTRUMENTS,
-  MOODS, sameRecipe, STATION_PRESETS, VIBES, type SoundOption, type SoundRecipe,
+  MOODS, sameRecipe, STATION_PRESETS, stationFor, VIBES, type SoundOption, type SoundRecipe,
 } from "@/lib/sound-recipe"
 
 type Slot = "mood" | "vibe" | "instruments" | "effects"
@@ -80,6 +80,36 @@ function Word({ label, text, open, ghost, pressed, charge, trayId, onToggle, wor
   )
 }
 
+// The die on "new take". Every new take throws it: the count picks the face
+// and the angle it comes to rest at, and the key restarts the tumble. Only the
+// tile is swapped for each throw, so the hand's pose (tipped, crouched) springs
+// straight into the hop instead of snapping upright first.
+const DIE_FACES = ["die5", "die3", "die6", "die2", "die4", "die1"] as const
+const DIE_TILTS = [-8, 7, -4, 10, -11, 4]
+
+// memoized: the panel re-renders on every dial step, and the die only answers `rolling`
+const TakeDie = memo(function TakeDie({ rolling }: { rolling: boolean }) {
+  const body = useRef<HTMLSpanElement>(null)
+  const [take, setTake] = useState({ count: 0, throws: 0 })
+  // a layout effect, so the frame before the throw never paints
+  useLayoutEffect(() => {
+    if (!rolling) return
+    // a take that arrives mid-air only changes the face it comes down on
+    const airborne = body.current?.getAnimations?.().some((animation) => animation.playState === "running")
+    setTake(({ count, throws }) => ({ count: count + 1, throws: airborne ? throws : throws + 1 }))
+  }, [rolling])
+  const face = take.count % DIE_FACES.length
+  return (
+    <span className="take-die" style={{ "--face": face, "--tilt": `${DIE_TILTS[face]}deg` } as CSSProperties} aria-hidden>
+      <span ref={body} key={take.throws} className="take-die-body" data-thrown={take.throws > 0 || undefined}>
+        <span className="take-die-faces">
+          {DIE_FACES.map((name) => <DotGlyph key={name} name={name} dot={3} />)}
+        </span>
+      </span>
+    </span>
+  )
+})
+
 export function SoundPanel() {
   const {
     controls, setControls, soundDraft, setSoundDraft, selectStation,
@@ -102,7 +132,9 @@ export function SoundPanel() {
 
   const { mode, recipe, prompt } = soundDraft
   const nextPrompt = mode === "builder" ? buildSoundPrompt(recipe) : prompt.replace(/\s+/g, " ").trim()
-  const currentRecipe = controls.recipe ?? STATION_PRESETS.find((preset) => preset.id === controls.station)?.recipe
+  // the preset on air, named or mixed; none when the sound is the listener's own
+  const playing = stationFor(controls)
+  const currentRecipe = playing?.recipe ?? controls.recipe
   const isCurrent = mode === "builder"
     ? !!currentRecipe && sameRecipe(recipe, currentRecipe)
     : nextPrompt.length > 0 && controls.station === CUSTOM_STATION && !controls.recipe && nextPrompt === controls.customPrompt.trim()
@@ -200,7 +232,7 @@ export function SoundPanel() {
     setDirty(false)
     setOpen(null)
     setEdited(null)
-    if (station !== controls.station) handlePetEvent("complete")
+    if (station !== playing?.id) handlePetEvent("complete")
     selectStation(station)
   }
 
@@ -272,7 +304,7 @@ export function SoundPanel() {
         if (event.key === "Escape" && open) { event.preventDefault(); closeTray() }
       }}
     >
-      <StationPicker station={controls.station} onSelect={onStation} />
+      <StationPicker station={playing?.id ?? CUSTOM_STATION} onSelect={onStation} />
 
       <div className="sound-words">
         {mode === "builder" ? (
@@ -334,12 +366,10 @@ export function SoundPanel() {
               onClick={requestVariation}
               disabled={!wantsAudio || rolling}
               aria-label="Skip to a new music variation"
-              title="Same sound, a new take"
+              title={wantsAudio || rolling ? "Same sound, a new take" : "Play first, then roll a new take"}
             >
-              <span className="refresh-orbit" aria-hidden>
-                <DotGlyph name="refresh" dot={1} className="refresh-arrow" />
-              </span>
-              {rolling ? "finding a take…" : "new take"}
+              <TakeDie rolling={rolling} />
+              <span className="reroll-label"><span>new take</span><span>rolling…</span></span>
             </button>
             <button type="button" className="foot-action write-toggle" onClick={() => switchMode(mode === "builder" ? "prompt" : "builder")}>
               <DotGlyph name={mode === "builder" ? "pen" : "chevron"} dot={1} className={mode === "builder" ? "write-toggle-pen" : "write-toggle-back"} />

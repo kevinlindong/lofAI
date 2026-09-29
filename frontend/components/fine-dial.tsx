@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react"
 import { RollingText } from "@/components/rolling-text"
+import { lowPowerActive } from "@/lib/render-budget"
 
 interface FineDialProps {
   label: string
@@ -30,6 +31,9 @@ const DRAG_DISTANCE = 4
 // how close a coarse drag has to come to neutral to click into it
 const DETENT = 2
 const TICKS = Array.from({ length: 11 }, (_, i) => i * 10)
+// how far either side of the pointer the hover lens reaches, as a share of
+// the rail: a bell about a tick and a half wide
+const LENS_REACH = 1 / 6
 
 type Speed = 1 | 0.25 | 0.1
 
@@ -38,6 +42,7 @@ const clamp = (value: number) => Math.max(0, Math.min(100, value))
 export function FineDial({ label, value, onChange, describe, neutral, min = 0, max = 100, disabled = false, disabledReason, formatValue }: FineDialProps) {
   const id = useId()
   const railRef = useRef<HTMLDivElement>(null)
+  const trackRef = useRef<HTMLSpanElement>(null)
   const thumbRef = useRef<HTMLSpanElement>(null)
   // the unrounded position, so slow drags still move between whole numbers
   const drag = useRef<{ pointerId: number; startX: number; startY: number; x: number; t: number; exact: number; moved: boolean } | null>(null)
@@ -86,7 +91,13 @@ export function FineDial({ label, value, onChange, describe, neutral, min = 0, m
   }, [])
 
   useEffect(() => {
-    if (disabled) endDrag()
+    if (!disabled) return
+    endDrag()
+    // the pointer goes unwatched while disabled, so wake with no lens rather
+    // than the one from before; the next move places it
+    railRef.current?.querySelectorAll<HTMLElement>("[data-mark]").forEach((mark) => mark.style.removeProperty("--near"))
+    trackRef.current?.style.removeProperty("--lens-at")
+    thumbRef.current?.style.removeProperty("--lens-at")
   }, [disabled, endDrag])
 
   const toPercent = (number: number) => clamp(((number - min) / (max - min)) * 100)
@@ -117,6 +128,10 @@ export function FineDial({ label, value, onChange, describe, neutral, min = 0, m
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (disabled || event.button !== 0 || !event.isPrimary || drag.current) return
+    // A press takes focus for the keys that follow. A scripted focus() can
+    // light the keyboard's ring on a click, so the press marks the rail and
+    // the ring waits for the first key instead.
+    event.currentTarget.dataset.pressed = ""
     event.currentTarget.focus({ preventScroll: true })
     event.currentTarget.setPointerCapture(event.pointerId)
     const exact = positionAt(event.clientX)
@@ -128,10 +143,41 @@ export function FineDial({ label, value, onChange, describe, neutral, min = 0, m
     if (!reducedMotion.current) lean.current.frame = requestAnimationFrame(animateLean)
   }
 
+  // The hover lens, written straight to what it touches: each mark (a tick or
+  // the neutral notch) gets its closeness to the pointer as --near, and the
+  // track and thumb get the pointer itself for the pooled light and the halo's
+  // wind. A mark is only restyled when its closeness changes, so skimming a
+  // dial touches a few dots rather than restyling the whole rail.
+  const followLens = (event: PointerEvent<HTMLDivElement>, rect = railRef.current!.getBoundingClientRect()) => {
+    // a finger has no hover to answer
+    if (event.pointerType === "touch") return
+    const at = clamp(((event.clientX - rect.left) / rect.width) * 100) / 100
+    railRef.current!.querySelectorAll<HTMLElement>("[data-mark]").forEach((mark) => {
+      const n = Math.max(0, 1 - Math.abs(Number(mark.dataset.mark) - at) / LENS_REACH)
+      const near = (n * n * (3 - 2 * n)).toFixed(2)
+      if ((mark.style.getPropertyValue("--near") || "0.00") !== near) mark.style.setProperty("--near", near)
+    })
+    // low power drops the pooled light and the wind, so nothing reads these
+    if (lowPowerActive()) return
+    const where = at.toFixed(3)
+    trackRef.current?.style.setProperty("--lens-at", where)
+    // the crown is hidden while held; winding it there only restarts its transition
+    if (!drag.current) thumbRef.current?.style.setProperty("--lens-at", where)
+  }
+
+  // Entering places it too: a dial scrolled under a resting pointer gets
+  // :hover and pointerenter but no move, and shouldn't wake with the lens
+  // from last time. Leaving keeps it, so the light fades where it was.
+  const onPointerEnter = (event: PointerEvent<HTMLDivElement>) => {
+    if (!disabled) followLens(event)
+  }
+
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
-    const state = drag.current
-    if (disabled || !state || event.pointerId !== state.pointerId) return
+    if (disabled) return
     const rect = railRef.current!.getBoundingClientRect()
+    followLens(event, rect)
+    const state = drag.current
+    if (!state || event.pointerId !== state.pointerId) return
     const away = Math.abs(event.clientY - (rect.top + rect.height / 2))
     const next: Speed = away > FINER_DISTANCE ? 0.1 : away > FINE_DISTANCE || event.shiftKey ? 0.25 : 1
     const dx = event.clientX - state.x
@@ -163,6 +209,7 @@ export function FineDial({ label, value, onChange, describe, neutral, min = 0, m
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    delete event.currentTarget.dataset.pressed
     if (disabled) return
     const step = event.shiftKey ? 10 : 1
     const next = {
@@ -222,20 +269,22 @@ export function FineDial({ label, value, onChange, describe, neutral, min = 0, m
         aria-valuetext={word ? `${readout}, ${word}` : readout}
         title={disabled ? disabledReason : neutral === undefined ? "Drag away from the line for finer steps" : "Drag away from the line for finer steps · double-click to reset"}
         onPointerDown={onPointerDown}
+        onPointerEnter={onPointerEnter}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerEnd}
         onPointerCancel={onPointerEnd}
         onLostPointerCapture={onPointerEnd}
         onKeyDown={onKeyDown}
+        onBlur={(event) => { delete event.currentTarget.dataset.pressed }}
         onDoubleClick={reset}
       >
-        <span className="fine-dial-track" aria-hidden />
+        <span ref={trackRef} className="fine-dial-track" aria-hidden />
         <span className="fine-dial-fill" aria-hidden />
         <span className="fine-dial-comb" aria-hidden />
         <span className="fine-dial-ticks" aria-hidden>
-          {TICKS.map((tick) => <i key={tick} style={{ left: `${tick}%` }} data-on={(tick >= Math.min(from, position) && tick <= Math.max(from, position)) || undefined} />)}
+          {TICKS.map((tick) => <i key={tick} style={{ left: `${tick}%` }} data-mark={tick / 100} data-on={(tick >= Math.min(from, position) && tick <= Math.max(from, position)) || undefined} />)}
         </span>
-        {neutralPosition !== undefined && <span key={clicks} className="fine-dial-notch" style={{ left: `${neutralPosition}%` }} data-clicked={clicks > 0 || undefined} aria-hidden />}
+        {neutralPosition !== undefined && <span key={clicks} className="fine-dial-notch" style={{ left: `${neutralPosition}%` }} data-mark={neutralPosition / 100} data-clicked={clicks > 0 || undefined} aria-hidden />}
         <span className="fine-dial-position" aria-hidden>
           <span ref={thumbRef} className="fine-dial-thumb" />
         </span>

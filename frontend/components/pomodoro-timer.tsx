@@ -21,6 +21,11 @@ export function PomodoroTimer({ onRunningChange }: PomodoroTimerProps) {
   const [isBreak, setIsBreak] = useState(false)
   const [isRunning, setIsRunning] = useState(false)
   const [timeLeft, setTimeLeft] = useState(25 * 60)
+  // counts presses only to replay the reset key's whoosh
+  const [rewinds, setRewinds] = useState(0)
+  // a pointer that has just arrived on the play key. only it gets the tug, so
+  // a cursor left resting there after a pause isn't nagged to start again
+  const [eager, setEager] = useState(false)
 
   // the phase ends at a wall-clock instant, not after N ticks. counting ticks
   // drifts, and drifts more the longer the tab is backgrounded.
@@ -79,6 +84,11 @@ export function PomodoroTimer({ onRunningChange }: PomodoroTimerProps) {
     setTimeLeft(workDuration * 60)
   }, [workDuration])
 
+  const rewind = useCallback(() => {
+    reset()
+    setRewinds((n) => n + 1)
+  }, [reset])
+
   const setPhaseDuration = (minutes: number, forBreak: boolean) => {
     if (forBreak) setBreakDuration(minutes)
     else setWorkDuration(minutes)
@@ -107,17 +117,30 @@ export function PomodoroTimer({ onRunningChange }: PomodoroTimerProps) {
           {formatTime(timeLeft)}
         </span>
 
-        <div className="flex gap-2">
+        <div className="timer-keys">
           <button
             type="button"
-            onClick={toggle}
-            className="key h-9 w-9"
+            onClick={() => {
+              setEager(false)
+              toggle()
+            }}
+            onPointerEnter={(event) => setEager(event.pointerType !== "touch")}
+            onPointerDown={() => setEager(false)}
+            onPointerLeave={() => setEager(false)}
+            className="key timer-key timer-toggle"
+            data-running={isRunning || undefined}
+            data-eager={eager || undefined}
             aria-label={isRunning ? "Pause timer" : "Start timer"}
           >
-            <DotGlyph name={isRunning ? "pause" : "play"} dot={2} />
+            <span className="timer-face">
+              <DotGlyph name={isRunning ? "pauseSmall" : "playSmall"} dot={2} morph className="timer-glyph" />
+            </span>
           </button>
-          <button type="button" onClick={reset} className="key h-9 w-9" aria-label="Reset timer">
-            <DotGlyph name="rewind" dot={2} />
+          <button type="button" onClick={rewind} className="key timer-key timer-reset" aria-label="Reset timer">
+            {/* remounted per press, so the whoosh replays every time */}
+            <span key={rewinds} className="timer-face" data-rewinding={rewinds > 0 || undefined}>
+              <DotGlyph name="rewind" dot={2} className="timer-glyph" />
+            </span>
           </button>
         </div>
       </div>

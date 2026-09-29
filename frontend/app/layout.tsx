@@ -1,6 +1,4 @@
-import "./globals.css"
-import "./music-panel.css"
-import "./integrations.css"
+import "./styles.css"
 import localFont from "next/font/local"
 import type React from "react"
 import { THEME_INIT_SCRIPT } from "@/lib/themes"

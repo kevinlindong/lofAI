@@ -63,10 +63,10 @@
 .sound-panel button { cursor: pointer; }
 
 /* Anything pressable in the panel dips under the finger and springs back. */
-.sound-panel :is(.station, .tray-option, .tune-in, .foot-action, .word-tray-foot button, .writer-ideas button) {
+.sound-panel :is(.tray-option, .tune-in, .foot-action, .word-tray-foot button, .writer-ideas button) {
   transition: color 160ms ease, background-color 160ms ease, transform var(--spring-jelly-ms) var(--spring-jelly);
 }
-.sound-panel :is(.station, .tray-option, .tune-in, .foot-action, .word-tray-foot button, .writer-ideas button):active:not(:disabled, [aria-disabled="true"]) {
+.sound-panel :is(.tray-option, .tune-in, .foot-action, .word-tray-foot button, .writer-ideas button):active:not(:disabled, [aria-disabled="true"]) {
   transform: scale(0.93);
   transition-duration: 160ms, 160ms, 90ms;
   transition-timing-function: ease, ease, ease-out;
@@ -83,78 +83,243 @@
 
 /* ── stations ──────────────────────────────────────────────────────────── */
 
+/* A little radio dial printed across the panel, so it centres under the
+   play dial. Each station is a column with its emblem and name over a
+   stretch of the dotted scale; the columns are equal, so the dots run on
+   unbroken from edge to edge. */
 .stations {
+  --band: 0.62rem;
+  --emblem-y: 0.1rem;
+  /* a longer trip takes a little longer; the station reacts as it lands */
+  --glide: calc(220ms + var(--hops, 1) * 45ms);
+  --land: calc(var(--glide) * 0.7);
   position: relative;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.2rem;
-  /* left-aligned with the sentence, so "your mix" grows the row to the right
-     instead of shifting every station */
-  justify-self: start;
-  padding: 0.25rem;
-  border: 1px solid var(--line-color);
-  border-radius: 1.3rem;
-  background: color-mix(in srgb, var(--surface-soft) 70%, transparent);
+  display: grid;
+  grid-template-columns: repeat(var(--count), minmax(0, 1fr));
 }
 .station {
   position: relative;
   z-index: 1;
-  min-height: 2.15rem;
-  padding: 0.35rem 0.95rem;
-  border-radius: 999px;
+  display: grid;
+  min-width: 0;
+  justify-items: center;
+  align-content: start;
+  gap: 0.18rem;
+  padding: var(--emblem-y) 0.15rem calc(var(--band) + 0.2rem);
+  border-radius: 0.8rem;
   color: var(--text-dim);
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 520;
-  white-space: nowrap;
+  line-height: 1;
+  text-align: center;
+  transition: color 160ms ease;
 }
-.station:hover { color: var(--text); }
-.station[aria-checked="true"] { color: var(--accent-ink); }
-.station.is-yours {
-  display: inline-flex;
-  align-items: center;
-  color: var(--accent-ink);
-  font-style: italic;
-  animation: pop-in var(--spring-bouncy-ms) var(--spring-bouncy) backwards;
+/* two words, one over the other, like the labels on a preset key */
+.station-name { width: min-content; transition: color 160ms ease, transform var(--spring-jelly-ms) var(--spring-jelly); }
+/* The emblem hops and dips as a whole; its dots change frame, and the
+   glyph inside it answers the pointer, so nothing fights over one transform. */
+.station-emblem {
+  display: grid;
+  color: var(--text-dim);
+  opacity: 0.8;
+  transition:
+    color 160ms ease,
+    opacity 160ms ease,
+    translate var(--spring-bouncy-ms) var(--spring-bouncy),
+    scale var(--spring-bouncy-ms) var(--spring-bouncy);
 }
-/* The pill behind the playing station. Its leading edge sets off first and
-   the trailing edge follows, so it stretches toward the next station. */
-.stations-pill {
+.station-glyph { display: grid; gap: 1px; }
+.station-glyph > span { border-radius: 50%; background: currentColor; }
+.station-glyph > :is([data-frame="b"], [data-frame="c"]) { opacity: 0; }
+/* a short window needs every pixel for the ring, so the dial tightens up */
+@media (max-height: 820px) and (min-width: 641px) {
+  .stations { --band: 0.5rem; --emblem-y: 0; }
+  .station { gap: 0.12rem; font-size: 0.7rem; }
+  .sound-panel { gap: 1.25rem; }
+  .site-shell .music-card { padding-block: 1.25rem; }
+}
+/* the dial under each station: a run of dots and a tick at its centre */
+.station::after {
   position: absolute;
-  z-index: 0;
-  transition:
-    left var(--spring-snappy-ms) var(--spring-snappy),
-    right var(--spring-snappy-ms) var(--spring-snappy),
-    top var(--spring-snappy-ms) var(--spring-snappy),
-    height var(--spring-snappy-ms) var(--spring-snappy);
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: var(--band);
+  /* six dots a station, set either side of its tick rather than under it */
+  background: radial-gradient(circle, var(--text-faint) 0.75px, transparent 1.15px) 0 50% / calc(100% / 6) 100% repeat-x;
+  content: "";
 }
-/* the leading edge eases out and stops at the station; the trailing edge
-   catches up on a spring, so any overshoot squeezes the pill, never pushes
-   it past the row */
-.stations-pill[data-heading="right"] {
-  transition:
-    right 340ms var(--ease-out),
-    left var(--spring-snappy-ms) 50ms var(--spring-snappy),
-    top var(--spring-snappy-ms) var(--spring-snappy),
-    height var(--spring-snappy-ms) var(--spring-snappy);
+.station::before {
+  position: absolute;
+  bottom: calc(var(--band) / 2 - 4px);
+  left: calc(50% - 0.5px);
+  width: 1px;
+  height: 8px;
+  border-radius: 1px;
+  background: var(--text-faint);
+  content: "";
+  transform-origin: 50% 100%;
+  transition: background-color 160ms ease, transform var(--spring-bouncy-ms) var(--spring-bouncy);
 }
-.stations-pill[data-heading="left"] {
-  transition:
-    left 340ms var(--ease-out),
-    right var(--spring-snappy-ms) 50ms var(--spring-snappy),
-    top var(--spring-snappy-ms) var(--spring-snappy),
-    height var(--spring-snappy-ms) var(--spring-snappy);
+/* Hovering, the emblem hops up a whole pixel step and shows its second
+   frame, and the station's tick reaches for the needle. The owl blinks, the
+   record spins and the boat rocks, each once and back to rest, so the dots
+   are never left off their grid. Only for pointers that hover. */
+@media (hover: hover) {
+  .station:hover { color: var(--text); }
+  .station:hover .station-emblem { color: var(--text); opacity: 1; translate: 0 -2px; }
+  .station:hover [data-frame="a"] { opacity: 0; }
+  .station:hover [data-frame="b"] { opacity: 1; }
+  .station:hover::before { background: color-mix(in srgb, var(--accent) 70%, transparent); transform: scaleY(1.6); }
+  .station:hover [data-frame="o"] { animation: blink-open 900ms step-end; }
+  .station:hover [data-frame="c"] { animation: blink-shut 900ms step-end; }
+  .station[data-station="dusty-beats"]:hover .station-glyph { animation: emblem-spin 900ms var(--ease-out); }
+  .station[data-station="seaside-bossa"]:hover .station-glyph { animation: emblem-rock 820ms ease-in-out; transform-origin: 50% 100%; }
+  .station[data-station="desk-lamp"]:hover [data-frame="b"] { animation: emblem-flicker 520ms linear; }
 }
-.stations-pill-body {
+/* pressing dips the emblem and name, never the station's stretch of the dial */
+.station:active .station-emblem {
+  scale: 0.85;
+  transition-duration: 160ms, 160ms, var(--spring-bouncy-ms), 90ms;
+  transition-timing-function: ease, ease, var(--spring-bouncy), ease-out;
+}
+.station:active .station-name { transform: scale(0.94); transition-duration: 160ms, 90ms; transition-timing-function: ease, ease-out; }
+.station[aria-checked="true"] { color: var(--text); }
+.station[aria-checked="true"] .station-emblem { color: var(--accent); opacity: 1; }
+/* on the pale themes the accent alone is fainter than an idle emblem */
+html:not(.dark) .station[aria-checked="true"] .station-emblem { color: color-mix(in srgb, var(--accent) 45%, var(--accent-deep)); }
+/* the station under the needle shows its second frame, switching over as
+   the needle gets there, and perks up */
+.station[data-on] [data-frame="a"] { opacity: 0; }
+.station[data-on] [data-frame="b"] { opacity: 1; }
+.stations[data-moved] .station[data-on] .station-glyph > :is([data-frame="a"], [data-frame="b"]) { transition: opacity 0s var(--land); }
+.stations[data-moved] .station[data-on] .station-emblem { animation: emblem-perk 640ms var(--land) var(--ease-out); }
+@media (prefers-reduced-motion: reduce) {
+  .stations[data-moved] .station[data-on] .station-glyph > :is([data-frame="a"], [data-frame="b"]) { transition: none; }
+}
+
+/* The needle stands on the dial. It glides over and eases in without ever
+   passing its station; its bar leans back against the move, swings upright
+   and settles, pivoting at its foot. A soft light travels with it behind the
+   emblem, and the dial flashes where it lands. */
+.stations-carriage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  pointer-events: none;
+  transition: transform var(--glide) var(--ease-out);
+}
+.stations-backlight { z-index: 0; }
+.stations-needle { z-index: 2; }
+.stations-needle-mark { position: absolute; inset: 0; }
+.stations-glow {
+  position: absolute;
+  top: calc(var(--emblem-y) + 10px);
+  left: 0;
+  width: 3.6rem;
+  height: 3.6rem;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 20%, transparent), transparent);
+  transform: translate(-50%, -50%);
+  animation: glow-in 400ms ease-out backwards;
+}
+.stations-lock {
+  position: absolute;
+  bottom: calc(var(--band) / 2 - 3px);
+  left: -1.6rem;
+  width: 3.2rem;
+  height: 6px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 70%, transparent), transparent);
+  opacity: 0;
+  animation: needle-lock 700ms var(--land) ease-out;
+}
+.stations-needle-bar {
+  --swing: 0;
+  position: absolute;
+  bottom: calc(var(--band) / 2 - 5px);
+  left: -1.5px;
+  width: 3px;
+  height: 13px;
+  border-radius: 3px;
+  background: var(--accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 55%, transparent);
+  transform-origin: 50% 100%;
+  animation: needle-swing calc(var(--glide) + 600ms) var(--ease-out);
+}
+html:not(.dark) .stations-needle-bar { background: color-mix(in srgb, var(--accent) 45%, var(--accent-deep)); }
+.stations[data-heading="right"] .stations-needle-bar { --swing: 1; }
+.stations[data-heading="left"] .stations-needle-bar { --swing: -1; }
+/* changing rows, it hops instead of flying across the gap */
+.stations[data-jump] .stations-carriage { transition: none; }
+.stations[data-jump] .stations-needle-bar { animation: needle-rise 560ms var(--spring-jelly); }
+/* between stations the needle sinks to a stub, and a tag hangs under it */
+.is-yours .stations-needle-bar {
+  scale: 1 0.5;
+  animation: needle-swing calc(var(--glide) + 600ms) var(--ease-out), needle-tuck 260ms var(--land) ease-in backwards;
+}
+.stations-yours {
+  position: absolute;
+  top: calc(100% - var(--band) / 2 + 6px);
+  left: 0;
+  isolation: isolate;
+  padding: 0.1rem 0.34rem 0.14rem;
+  color: var(--accent-ink);
+  font-size: 0.6rem;
+  font-style: italic;
+  font-weight: 600;
+  line-height: 1.15;
+  white-space: nowrap;
+  translate: -50% 0;
+  /* the words wait for the cloth, so they never land on bare page */
+  animation: yours-in 240ms calc(var(--land) + 180ms) ease-out backwards;
+}
+/* the tag's cloth stretches as it unfurls; the words only drop into place */
+.stations-yours::before {
   position: absolute;
   inset: 0;
+  z-index: -1;
   border-radius: 999px;
   background: var(--accent);
-  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 30%, transparent);
-  /* lands with a squash once it arrives */
-  animation: pill-land 620ms 260ms var(--spring-jelly) backwards;
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--accent) 32%, transparent);
+  content: "";
+  transform-origin: 50% 0;
+  animation: yours-unfurl 620ms var(--land) ease-out backwards;
 }
-/* nothing to land on the first paint */
-.stations-pill:not([data-heading]) .stations-pill-body { animation: none; }
+/* nothing to swing or land on the first paint */
+.stations:not([data-heading], [data-jump]) :is(.stations-needle-bar, .stations-lock, .stations-glow, .stations-yours),
+.stations:not([data-heading], [data-jump]) .stations-yours::before { animation: none; }
+
+@keyframes needle-swing {
+  0% { transform: rotate(calc(var(--swing) * -16deg)); }
+  38% { transform: rotate(calc(var(--swing) * 9deg)); }
+  64% { transform: rotate(calc(var(--swing) * -4deg)); }
+  84% { transform: rotate(calc(var(--swing) * 1.5deg)); }
+  100% { transform: none; }
+}
+@keyframes needle-tuck { from { scale: 1 1; } }
+@keyframes needle-rise { from { transform: scaleY(0); } }
+@keyframes needle-lock {
+  0% { opacity: 0.9; transform: scaleX(0.25); }
+  100% { opacity: 0; transform: scaleX(1.3); }
+}
+/* it grows, then drops back and lands with a little give (a keyframe's
+   easing can't read the spring variables, so this is --spring-bouncy's curve) */
+@keyframes emblem-perk { 30% { scale: 1.2; animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1); } }
+@keyframes emblem-spin { from { rotate: -360deg; } }
+@keyframes emblem-rock { 25% { rotate: -10deg; } 55% { rotate: 7deg; } 80% { rotate: -3deg; } }
+@keyframes emblem-flicker { 0%, 30%, 55% { opacity: 1; } 15% { opacity: 0.2; } 42% { opacity: 0.45; } }
+/* a slow blink, then a quick one */
+@keyframes blink-open { 8% { opacity: 0; } 30% { opacity: 1; } 44% { opacity: 0; } 56% { opacity: 1; } }
+@keyframes blink-shut { 8% { opacity: 1; } 30% { opacity: 0; } 44% { opacity: 1; } 56% { opacity: 0; } }
+@keyframes yours-in { from { opacity: 0; translate: -50% -3px; } }
+@keyframes yours-unfurl {
+  0% { opacity: 0; transform: scale(0.15, 0.1); }
+  45% { opacity: 1; transform: scale(1.08, 1.12); }
+  72% { transform: scale(0.98, 0.97); }
+}
+@keyframes glow-in { from { opacity: 0; } }
 
 /* ── the sentence ──────────────────────────────────────────────────────── */
 
@@ -357,31 +522,80 @@
 .write-toggle-back { transform: rotate(90deg); }
 .write-toggle:hover .write-toggle-back { transform: rotate(90deg) translateY(-2px); }
 
-/* A dotted arrow winds up on approach and circles while the next take arrives. */
-.refresh-orbit {
-  display: inline-grid;
+/* A dotted die. It lies flat until there is music to reroll, perks up when
+   there is, tips back on approach, and every new take throws it: a hop, a
+   spin, a squash on landing, and a fresh face at a new angle. The outer die
+   holds the hand's pose on springs; the tile inside does the throwing. */
+.reroll { --patience: 400ms; border-radius: 0.4rem; }
+.take-die {
+  --die: 19px;
+  display: block;
   flex: 0 0 auto;
-  width: 1.65rem;
-  height: 1.65rem;
+  width: var(--die);
+  height: var(--die);
+  rotate: var(--tilt);
+  transition:
+    rotate var(--spring-jelly-ms) var(--spring-jelly),
+    translate var(--spring-bouncy-ms) var(--spring-bouncy),
+    scale var(--spring-jelly-ms) var(--spring-jelly);
+}
+.take-die-body {
+  display: block;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 5px;
+  background: color-mix(in srgb, currentColor 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 30%, transparent);
+}
+/* all six faces on a strip; the die is the window onto the one it landed on */
+.take-die-faces {
+  display: grid;
+  grid-auto-rows: var(--die);
   place-items: center;
-  border-radius: 50%;
-  transition: background-color 160ms ease, transform var(--spring-bouncy-ms) var(--spring-bouncy);
+  transform: translateY(calc(var(--face) * var(--die) * -1));
 }
-.refresh-arrow { transition: transform var(--spring-bouncy-ms) var(--spring-bouncy); }
-.reroll:is(:hover, :focus-visible):not(:disabled) .refresh-orbit {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  transform: scale(1.12);
+.reroll:is(:hover, :focus-visible):not(:disabled) .take-die { rotate: calc(var(--tilt) - 22deg); translate: 0 -2px; }
+/* a crouch before the throw, which the hop springs out of */
+.reroll:active:not(:disabled) .take-die { scale: 1.14 0.84; translate: 0 1px; transition-duration: 90ms; transition-timing-function: ease-out; }
+.take-die-body[data-thrown] { animation: die-throw 720ms; }
+/* the faces flash past in the air and settle a beat before touchdown */
+.take-die-body[data-thrown] .take-die-faces { animation: die-faces 420ms steps(6); }
+/* the shared press springs, plus a busy cursor that waits as the label does */
+.sound-panel .reroll.is-rolling {
+  opacity: 1;
+  color: var(--accent-deep);
+  cursor: progress;
+  transition: color 160ms ease, transform var(--spring-jelly-ms) var(--spring-jelly), cursor 0s var(--patience) allow-discrete;
 }
-.reroll:is(:hover, :focus-visible):not(:disabled) .refresh-arrow { transform: rotate(65deg); }
-.reroll:active:not(:disabled) .refresh-orbit { transform: scale(0.92); }
-.reroll:focus-visible {
-  outline: 2px dotted var(--accent);
-  outline-offset: 4px;
-  border-radius: 0.35rem;
+/* a slow take keeps the faces turning over, unhurried, until it arrives */
+.reroll.is-rolling .take-die-faces { animation: die-faces 420ms steps(6), die-faces 1800ms 420ms steps(6) infinite; }
+/* both labels share one cell, so swapping them never nudges the die. only a
+   take that keeps us waiting says so; a quick one never flashes the copy */
+.reroll-label { display: inline-grid; }
+.reroll-label > * { grid-area: 1 / 1; }
+.reroll-label > :last-child,
+.reroll.is-rolling .reroll-label > :first-child { visibility: hidden; }
+.reroll.is-rolling .reroll-label > :last-child { visibility: visible; }
+.reroll.is-rolling .reroll-label > * { transition: visibility 0s var(--patience); }
+/* waiting for the music reads as resting, not broken: it only stirs */
+.reroll:disabled:not(.is-rolling) { opacity: 1; color: var(--text-faint); cursor: default; }
+.reroll:disabled:not(.is-rolling) .take-die { rotate: 0deg; scale: 0.9; }
+.reroll:disabled:not(.is-rolling):hover .take-die { rotate: -6deg; scale: 0.94; }
+.reroll:disabled:not(.is-rolling) .take-die-body { box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 40%, transparent); }
+
+@keyframes die-faces {
+  from { transform: translateY(0); }
+  to { transform: translateY(calc(var(--die) * -6)); }
 }
-.reroll.is-rolling { opacity: 1; }
-.reroll.is-rolling .refresh-orbit { color: var(--accent-deep); }
-.reroll.is-rolling .refresh-arrow { animation: take-refresh 1600ms linear infinite; }
+/* crouch, a spinning hop, a squashed landing just past square, one small bounce */
+@keyframes die-throw {
+  0% { transform: translateY(0) rotate(0deg) scale(1, 1); animation-timing-function: ease-out; }
+  14% { transform: translateY(1px) rotate(14deg) scale(1.12, 0.86); animation-timing-function: cubic-bezier(0.2, 0.6, 0.4, 1); }
+  46% { transform: translateY(-11px) rotate(-190deg) scale(0.94, 1.06); animation-timing-function: cubic-bezier(0.5, 0, 0.8, 0.4); }
+  70% { transform: translateY(1.5px) rotate(-372deg) scale(1.18, 0.82); animation-timing-function: ease-out; }
+  84% { transform: translateY(-2px) rotate(-357deg) scale(0.97, 1.03); animation-timing-function: ease-in-out; }
+  100% { transform: translateY(0) rotate(-360deg) scale(1, 1); }
+}
 
 /* ── fine dials ────────────────────────────────────────────────────────── */
 
@@ -396,7 +610,7 @@
 .fine-dial.is-disabled { opacity: 0.4; }
 .fine-dial.is-disabled .fine-dial-rail { cursor: not-allowed; }
 .fine-dial-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; font-size: 0.7rem; line-height: 1.2; }
-.fine-dial-label { flex-shrink: 0; color: var(--text-dim); }
+.fine-dial-label { flex-shrink: 0; color: var(--text-dim); transition: color 200ms ease; }
 .fine-dial-readout { display: inline-flex; min-width: 0; align-items: baseline; gap: 0.4rem; overflow: hidden; white-space: nowrap; }
 .fine-dial-word { overflow: hidden; color: var(--text); font-weight: 560; text-overflow: ellipsis; }
 .fine-dial-value { color: var(--text-faint); font-size: 0.64rem; font-variant-numeric: tabular-nums; transition: color 160ms ease; }
@@ -414,8 +628,20 @@
   -webkit-user-select: none;
 }
 .fine-dial.is-held .fine-dial-rail { cursor: grabbing; }
+/* the thumb hangs half out past each end, so the rail reaches as far: the
+   overhang still answers the pointer, and a press there lands on the end */
+.fine-dial-rail::after { content: ""; position: absolute; inset: 0 -8px; }
 .fine-dial-track, .fine-dial-fill, .fine-dial-comb, .fine-dial-ticks { position: absolute; left: 0; right: 0; pointer-events: none; }
 .fine-dial-track { top: 50%; height: 1px; background: var(--line-strong); }
+/* light pools on the line under the pointer (off the rail until it arrives) */
+.fine-dial-track::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent calc(var(--lens-at, -1) * 100% - 2.75rem), var(--text-dim) calc(var(--lens-at, -1) * 100%), transparent calc(var(--lens-at, -1) * 100% + 2.75rem));
+  opacity: 0;
+  transition: opacity 260ms ease;
+}
 .fine-dial-fill {
   top: calc(50% - 1px);
   left: var(--fill-origin);
@@ -431,26 +657,38 @@
   transition: transform var(--spring-snappy-ms) var(--spring-snappy);
 }
 .fine-dial-ticks { top: calc(50% + 6px); height: 2px; }
+/* --lens (0..1) is how near the hover lens is; see "the dial notices you" */
 .fine-dial-ticks > i {
+  --lens: 0;
   position: absolute;
   width: 2px;
   height: 2px;
   margin-left: -1px;
   border-radius: 50%;
-  background: var(--text-faint);
-  opacity: 0.6;
-  transition: background-color 160ms ease, opacity 160ms ease, transform var(--spring-bouncy-ms) var(--spring-bouncy);
+  background: color-mix(in srgb, var(--text-dim) calc(var(--lens) * 100%), var(--text-faint));
+  opacity: calc(0.6 + var(--lens) * 0.4);
+  translate: 0 calc(var(--lens) * -1.5px);
+  scale: calc(1 + var(--lens) * var(--lens-swell, 1));
+  transition:
+    background-color 160ms ease,
+    opacity 160ms ease,
+    transform var(--spring-bouncy-ms) var(--spring-bouncy),
+    translate var(--spring-bouncy-ms) var(--spring-bouncy),
+    scale var(--spring-bouncy-ms) var(--spring-bouncy);
 }
 /* each tick pops as the fill reaches it */
-.fine-dial-ticks > i[data-on] { background: var(--accent); opacity: 1; transform: scale(1.5); }
+.fine-dial-ticks > i[data-on] { --lens-swell: 0.45; background: var(--accent); opacity: 1; transform: scale(1.5); }
 .fine-dial-notch {
+  --lens: 0;
   position: absolute;
   top: calc(50% - 5px);
   width: 1px;
   height: 4px;
-  background: var(--text-dim);
+  background: color-mix(in srgb, var(--text) calc(var(--lens) * 100%), var(--text-dim));
   pointer-events: none;
   transform-origin: 50% 100%;
+  scale: 1 calc(1 + var(--lens) * 0.75);
+  transition: background-color 160ms ease, scale var(--spring-jelly-ms) var(--spring-jelly);
 }
 /* clicking into neutral: the notch jumps */
 .fine-dial-notch[data-clicked] { animation: notch-click 520ms var(--spring-jelly); }
@@ -502,7 +740,49 @@
     height var(--spring-jelly-ms) var(--spring-jelly),
     box-shadow 200ms ease;
 }
-.fine-dial:not(.is-disabled) .fine-dial-rail:hover .fine-dial-thumb { width: 14px; }
+/* Its halo, shown on hover: a soft glow, and a crown of dots over the cutout
+   that winds as the pointer travels the rail, like a knurled wheel seen from
+   above. Only the top shows, so it never threads the ticks under the line.
+   The dots turn rather than the box, so at an endpoint the crown reaches no
+   further into its card. The whole rail winds it only four dots on, so a
+   quick sweep still reads as a turn rather than a shimmer. */
+@property --wind { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+.fine-dial-thumb::before,
+.fine-dial-thumb::after {
+  content: "";
+  position: absolute;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+.fine-dial-thumb::after { inset: -3px; box-shadow: 0 0 12px 2px color-mix(in srgb, var(--accent) 16%, transparent); }
+.fine-dial-thumb::before {
+  --wind: calc(var(--lens-at, 0.5) * 90deg);
+  inset: -7.5px;
+  /* A band of ink, cut into 16 dots and then into the crown: full over the
+     top, gone by just under the line. Band and dots share one bell-shaped
+     falloff (a raised cosine), so where they cross the dot comes out round. */
+  background: radial-gradient(closest-side,
+    transparent calc(100% - 3.5px),
+    color-mix(in srgb, var(--accent) 15%, transparent) calc(100% - 3.075px),
+    color-mix(in srgb, var(--accent) 50%, transparent) calc(100% - 2.65px),
+    color-mix(in srgb, var(--accent) 85%, transparent) calc(100% - 2.225px),
+    var(--accent) calc(100% - 1.8px),
+    color-mix(in srgb, var(--accent) 85%, transparent) calc(100% - 1.375px),
+    color-mix(in srgb, var(--accent) 50%, transparent) calc(100% - 0.95px),
+    color-mix(in srgb, var(--accent) 15%, transparent) calc(100% - 0.525px),
+    transparent calc(100% - 0.1px));
+  -webkit-mask-image:
+    repeating-conic-gradient(from var(--wind), #000 0deg, rgb(0 0 0 / 0.85) 1.85deg, rgb(0 0 0 / 0.5) 3.7deg, rgb(0 0 0 / 0.15) 5.55deg, transparent 7.4deg 15.1deg, rgb(0 0 0 / 0.15) 16.95deg, rgb(0 0 0 / 0.5) 18.8deg, rgb(0 0 0 / 0.85) 20.65deg, #000 22.5deg),
+    conic-gradient(#000 0deg 72deg, transparent 90deg 270deg, #000 288deg);
+  mask-image:
+    repeating-conic-gradient(from var(--wind), #000 0deg, rgb(0 0 0 / 0.85) 1.85deg, rgb(0 0 0 / 0.5) 3.7deg, rgb(0 0 0 / 0.15) 5.55deg, transparent 7.4deg 15.1deg, rgb(0 0 0 / 0.15) 16.95deg, rgb(0 0 0 / 0.5) 18.8deg, rgb(0 0 0 / 0.85) 20.65deg, #000 22.5deg),
+    conic-gradient(#000 0deg 72deg, transparent 90deg 270deg, #000 288deg);
+  -webkit-mask-composite: source-in;
+  mask-composite: intersect;
+  scale: 0.6;
+  transition: opacity 180ms ease, scale var(--spring-jelly-ms) var(--spring-jelly), --wind 420ms var(--ease-out);
+}
 /* grabbed: glide to the pointer, squash, and lean with no lag */
 .fine-dial.is-held .fine-dial-thumb {
   width: 20px;
@@ -518,7 +798,49 @@
 .fine-dial.is-fine .fine-dial-thumb { width: 2px; height: 18px; box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 55%, transparent); }
 .sound-panel .fine-dial-rail:focus-visible,
 .fine-dial-rail:focus-visible { outline: none; }
-.fine-dial-rail:focus-visible .fine-dial-thumb { box-shadow: 0 0 0 3px var(--surface-strong), 0 0 0 5px var(--accent); }
+.fine-dial-rail:focus-visible:not([data-pressed]) .fine-dial-thumb { box-shadow: 0 0 0 3px var(--surface-strong), 0 0 0 5px var(--accent); }
+
+/* The dial notices you. A lens follows the pointer: the marks under it swell,
+   rise toward the line and brighten (each mark's --near, 0..1, is written on
+   pointermove). The thumb perks up with its halo, the label lights, and
+   leaving settles it all on springs. The lens steps aside for the comb while
+   scrubbing finely; held, the thumb keeps its squash and needle; a disabled
+   dial takes no notice. Under the keys, the label lights beside the ring. */
+.fine-dial:not(.is-disabled):has(> .fine-dial-rail:focus-visible:not([data-pressed])) .fine-dial-label { color: var(--text); }
+
+@media (hover: hover) and (pointer: fine) {
+  /* under the pointer the marks follow quickly; the springs are for leaving */
+  .fine-dial:not(.is-disabled, .is-fine) .fine-dial-rail:hover .fine-dial-ticks > i {
+    --lens: var(--near, 0);
+    transition-duration: 160ms, 160ms, var(--spring-bouncy-ms), 220ms, 220ms;
+    transition-timing-function: ease, ease, var(--spring-bouncy), var(--ease-out), var(--ease-out);
+  }
+  /* the neutral mark stands up as the pointer nears it; held, it keeps still
+     for the detent's own click */
+  .fine-dial:not(.is-disabled, .is-held) .fine-dial-rail:hover .fine-dial-notch { --lens: var(--near, 0); }
+  .fine-dial:not(.is-disabled, .is-fine) .fine-dial-rail:hover .fine-dial-track::before { opacity: 0.55; }
+  /* the keys' focus ring already circles the thumb, so there it is the halo
+     and the crown stays down */
+  .fine-dial:not(.is-disabled, .is-held) .fine-dial-rail:hover:not(:focus-visible:not([data-pressed])) .fine-dial-thumb::before { opacity: 1; scale: 1; }
+  .fine-dial:not(.is-disabled, .is-held) .fine-dial-rail:hover .fine-dial-thumb::after { opacity: 1; }
+  .fine-dial:not(.is-disabled):has(> .fine-dial-rail:hover) .fine-dial-label { color: var(--text); }
+  .fine-dial:not(.is-disabled, .is-held):has(> .fine-dial-rail:hover) .fine-dial-value { color: var(--text-dim); }
+}
+/* the perk itself: rounder and a size up, overshooting a little on the jelly */
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .fine-dial:not(.is-disabled, .is-held) .fine-dial-rail:hover .fine-dial-thumb { width: 14px; height: 14px; }
+}
+/* reduced motion keeps the colour and drops the movement: the lens only
+   brightens, and the crown and glow appear in place */
+@media (prefers-reduced-motion: reduce) {
+  .fine-dial :is(.fine-dial-ticks > i, .fine-dial-notch) { translate: none; scale: none; }
+  .fine-dial .fine-dial-thumb::before { --wind: 0deg; scale: none; }
+}
+/* Low power keeps the short reactions and the lens, which only moves a few
+   dots; the pooled light and the crown's winding go, since both repaint a
+   gradient on every pointer move (as the ambience's ink trail does). */
+html.low-power .fine-dial-track::before { display: none; }
+html.low-power .fine-dial-thumb::before { --wind: 0deg; }
 
 /* ── motion ────────────────────────────────────────────────────────────── */
 
@@ -536,11 +858,6 @@
   from { background-position: 100% 100%, 0 100%; background-size: 100% 2px, 5px 4px; background-color: color-mix(in srgb, var(--accent) 22%, transparent); }
   to { background-position: 100% 100%, 0 100%; background-size: 0 2px, 5px 4px; background-color: transparent; }
 }
-@keyframes pill-land {
-  0% { transform: scale(1); }
-  30% { transform: scale(1.06, 0.88); }
-  100% { transform: scale(1); }
-}
 @keyframes refuse {
   0%, 100% { transform: translateX(0); }
   20% { transform: translateX(-4px) rotate(-2deg); }
@@ -552,12 +869,11 @@
   30% { transform: scaleY(2.4); }
   100% { transform: scaleY(1); }
 }
-@keyframes take-refresh { to { transform: rotate(360deg); } }
 
 @media (max-width: 640px) {
-  .stations { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); justify-self: stretch; }
-  .station { padding-inline: 0.5rem; }
-  .station.is-yours { grid-column: 1 / -1; justify-content: center; }
+  /* two rows of four, each with its own stretch of dial, and room under the
+     bottom one for the tag that hangs off the needle */
+  .stations { grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: 0.55rem; padding-bottom: 0.5rem; }
   .fine-dials { grid-template-columns: minmax(0, 1fr); gap: 0.9rem; }
   .sound-foot { flex-wrap: wrap; }
   .sound-foot-actions { gap: 1rem; }
@@ -567,13 +883,13 @@
   .sound-panel *, .sound-panel *::before, .music-panel .play-key,
   .fine-dial *, .fine-dial *::before { animation: none !important; transition-duration: 0.01ms !important; }
   .fine-dial-thumb { transform: translate(-50%, -50%); }
-  .reroll:is(:hover, :focus-visible, :active):not(:disabled) .refresh-orbit,
-  .reroll:is(:hover, :focus-visible):not(:disabled) .refresh-arrow { transform: none; }
+  .reroll:is(:hover, :focus-visible, :active):not(:disabled) .take-die { rotate: var(--tilt); translate: none; scale: none; }
+  .reroll:disabled:not(.is-rolling):hover .take-die { rotate: 0deg; scale: 0.9; }
 }
 
 /* Short, interaction-driven motion stays in low power; the loops stop. */
 html.low-power .word:hover,
-html.low-power .reroll.is-rolling .refresh-arrow,
 html.low-power .panel-state.is-tuning::before {
   animation: none;
 }
+html.low-power .reroll.is-rolling .take-die-faces { animation: die-faces 420ms steps(6); }

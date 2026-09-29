@@ -1,4 +1,4 @@
-import { MAX_CUSTOM_PROMPT_CHARS, type ListenerControls } from "./mrt-stream"
+import { DEFAULT_LISTENER_CONTROLS, MAX_CUSTOM_PROMPT_CHARS, type ListenerControls } from "./mrt-stream"
 
 export const CUSTOM_STATION = "custom"
 export const MAX_INSTRUMENTS = 3
@@ -67,24 +67,69 @@ export interface SoundDraft {
   prompt: string
 }
 
-export const STATION_PRESETS = [
+export interface StationPreset {
+  id: string
+  label: string
+  description: string
+  recipe: SoundRecipe
+  // Mixed from the sentence's own options. The backend only tunes four
+  // stations by name, so these go out the way a custom mix does.
+  mixed?: boolean
+}
+
+// Ordered like a day on the dial, from bright mornings to a nap.
+export const STATION_PRESETS: readonly StationPreset[] = [
+  {
+    id: "sunlit-groove", label: "Sunlit groove", description: "Muted brass and a brighter, animated beat",
+    recipe: { instruments: ["trumpet", "rhodes"], vibe: "soulful", mood: "uplifting", effects: [] },
+  },
+  {
+    id: "seaside-bossa", label: "Seaside bossa", description: "Breezy bossa guitar and Rhodes with a little shimmer",
+    recipe: { instruments: ["guitar", "rhodes"], vibe: "bossa", mood: "mellow", effects: ["chorus"] }, mixed: true,
+  },
   {
     id: "dusty-beats", label: "Dusty beats", description: "Warm guitar loops and an easy pocket",
     recipe: { instruments: ["guitar"], vibe: "lofi", mood: "mellow", effects: [] },
-  },
-  {
-    id: "rainy-piano", label: "Rainy piano", description: "Spacious felt piano for quiet focus",
-    recipe: { instruments: ["piano"], vibe: "ambient", mood: "melancholy", effects: [] },
   },
   {
     id: "jazz-cafe", label: "Jazz cafe", description: "Warm jazz guitar with a loose brushed swing",
     recipe: { instruments: ["guitar", "bass"], vibe: "jazzhop", mood: "cozy", effects: [] },
   },
   {
-    id: "sunlit-groove", label: "Sunlit groove", description: "Muted brass and a brighter, animated beat",
-    recipe: { instruments: ["trumpet", "rhodes"], vibe: "soulful", mood: "uplifting", effects: [] },
+    id: "desk-lamp", label: "Desk lamp", description: "Steady Rhodes and upright bass that stay out of the way",
+    recipe: { instruments: ["rhodes", "bass"], vibe: "lofi", mood: "focused", effects: [] }, mixed: true,
   },
-] satisfies { id: string; label: string; description: string; recipe: SoundRecipe }[]
+  {
+    id: "rainy-piano", label: "Rainy piano", description: "Spacious felt piano for quiet focus",
+    recipe: { instruments: ["piano"], vibe: "ambient", mood: "melancholy", effects: [] },
+  },
+  {
+    id: "night-owl", label: "Night owl", description: "Smoky late-night sax over soft felt piano",
+    recipe: { instruments: ["saxophone", "piano"], vibe: "jazzhop", mood: "melancholy", effects: ["reverb"] }, mixed: true,
+  },
+  {
+    id: "cloud-nap", label: "Cloud nap", description: "Music box and slow pads, drifting off",
+    recipe: { instruments: ["music-box", "pads"], vibe: "dreamy", mood: "sleepy", effects: ["delay"] }, mixed: true,
+  },
+]
+
+export const stationPreset = (id: string) => STATION_PRESETS.find((preset) => preset.id === id)
+
+// What the backend hears for a preset: a named station by its name, a mixed
+// one as the prompt the sentence would send, with its recipe for the picker.
+export function stationControls(preset: StationPreset): Pick<RadioControls, "station" | "customPrompt" | "recipe"> {
+  return preset.mixed
+    ? { station: CUSTOM_STATION, customPrompt: buildSoundPrompt(preset.recipe), recipe: preset.recipe }
+    : { station: preset.id, customPrompt: "", recipe: undefined }
+}
+
+// The preset that is playing: a named station, or a custom mix that is one
+// of the mixed presets. Anything else is the listener's own.
+export function stationFor(controls: RadioControls): StationPreset | undefined {
+  if (controls.station !== CUSTOM_STATION) return stationPreset(controls.station)
+  const recipe = mixedRecipe(controls)
+  return recipe && STATION_PRESETS.find((preset) => preset.mixed && sameRecipe(preset.recipe, recipe))
+}
 
 const optionPrompt = (options: readonly SoundOption[], id: string) =>
   options.find((option) => option.id === id)?.prompt ?? ""
@@ -109,13 +154,20 @@ function isRecipe(value: unknown): value is SoundRecipe {
     VIBES.some((option) => option.id === recipe.vibe) && MOODS.some((option) => option.id === recipe.mood)
 }
 
+// A custom mix's recipe, only while it is still the prompt being played:
+// stale metadata must never put a different sound on the dial or the sentence.
+function mixedRecipe(controls: RadioControls): SoundRecipe | undefined {
+  const { station, recipe, customPrompt } = controls
+  return station === CUSTOM_STATION && isRecipe(recipe) && buildSoundPrompt(recipe) === customPrompt ? recipe : undefined
+}
+
 export function soundDraftFor(controls: RadioControls): SoundDraft {
-  const station = STATION_PRESETS.find((entry) => entry.id === controls.station)
-  const recipe = controls.station === CUSTOM_STATION && isRecipe(controls.recipe) &&
-    buildSoundPrompt(controls.recipe) === controls.customPrompt ? controls.recipe : undefined
+  const station = stationPreset(controls.station)
+  const recipe = mixedRecipe(controls)
   return {
     mode: controls.station === CUSTOM_STATION && !recipe ? "prompt" : "builder",
-    recipe: recipe ?? station?.recipe ?? STATION_PRESETS[0].recipe,
+    // an unknown station plays the default on the backend, so show its recipe
+    recipe: recipe ?? station?.recipe ?? stationPreset(DEFAULT_LISTENER_CONTROLS.station)!.recipe,
     prompt: controls.station === CUSTOM_STATION && !recipe ? controls.customPrompt.slice(0, MAX_CUSTOM_PROMPT_CHARS) : "",
   }
 }
@@ -127,7 +179,7 @@ export function sameRecipe(a: SoundRecipe, b: SoundRecipe): boolean {
 }
 
 export function describeSound(controls: RadioControls) {
-  return STATION_PRESETS.find((station) => station.id === controls.station) ?? {
+  return stationFor(controls) ?? {
     id: CUSTOM_STATION,
     label: controls.recipe ? "Your custom mix" : "Your own prompt",
     description: controls.customPrompt || "A soundtrack in your own words",

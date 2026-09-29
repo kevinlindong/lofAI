@@ -5,8 +5,8 @@ a companion, and enough structure to make the next small thing easier.
 The product direction is calm, playful, quirky, and alive. Character should
 come from how tools respond as well as how they look.
 
-The shared timer sliders, compact cat widget, dot-matrix refresh control,
-and service connections are implemented. See [connection setup](INTEGRATIONS.md)
+The shared timer sliders, compact cat widget, dot-matrix new-take die,
+station dial, and service connections are implemented. See [connection setup](INTEGRATIONS.md)
 for the exact capabilities and account requirements. The richer workflows and
 additional tools below remain product direction: for example, imported calendar
 events are available today, while suggested focus windows are still proposed.
@@ -17,7 +17,7 @@ events are available today, while suggested focus windows are still proposed.
 | --- | --- | --- |
 | Tasks | Browser-local list; add, complete, undo, remove, clear completed; import preview, source links, optional remote completion, portable transfers; task actions animate the cat | Edit tasks, pick a task for a session, background reconciliation |
 | Pomodoro | Manual focus/rest cycles, pause/reset, end sound, wall-clock deadline; focus 1–60 minutes and rest 1–30 | Remember preferences, associate sessions with tasks, acknowledge finished sessions |
-| Radio | Four live generative stations, custom sound recipe or prompt, variation, volume, keyboard shortcuts | Save personal sound-and-focus rituals |
+| Radio | Eight-station dial (four tuned backend stations, four mixed recipes), custom sound recipe or prompt, variation, volume, keyboard shortcuts | Save personal sound-and-focus rituals |
 | Companion | Compact widget; cat follows the cursor, responds to petting/tasks/music/focus, and dozes | React to session milestones, welcome people back gently |
 | Atmosphere | Six saved themes, dot artwork, flowing visualizer, ambient marks, reduced-motion and low-power modes | Keep new tools consistent with this existing identity |
 

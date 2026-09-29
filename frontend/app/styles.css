@@ -1,0 +1,7 @@
+/* The one stylesheet entry. Next doesn't keep the order of separately
+   imported CSS files stable between builds, and later sheets override
+   earlier ones at equal specificity, so postcss-import sets it here. */
+@import "./globals.css";
+@import "./music-panel.css";
+@import "./integrations.css";
+@import "./timer.css";

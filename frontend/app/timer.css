@@ -1,0 +1,200 @@
+/* The timer's two keys. Roomier than the shared .key, with a play mark that
+   ripples dot by dot into pause and back. Held, the play key is the one thing
+   asking to be pressed; running, both keys go quiet so focus time stays calm. */
+
+/* clip rather than hide, as the music card does: a hidden overflow scrolls,
+   and the corner glow gives it room to slide the keys sideways */
+.timer-card { overflow: clip; }
+.timer-keys { display: flex; flex-shrink: 0; gap: 0.55rem; }
+
+.timer-key {
+  position: relative;
+  /* the breath below paints between the key's fill and its mark, low power
+     (which drops the blur, and its stacking) included */
+  isolation: isolate;
+  width: 2.875rem;
+  height: 2.875rem;
+  border-radius: 0.95rem;
+  cursor: pointer;
+  /* releasing lands on a spring; pressing (below) is quick */
+  transition:
+    transform var(--spring-bouncy-ms) var(--spring-bouncy),
+    background-color 220ms ease,
+    color 220ms ease,
+    border-color 220ms ease,
+    box-shadow 220ms ease;
+}
+/* the shared key floods with accent on hover; here only held play is loud */
+.timer-key:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line-color));
+  background: var(--surface-strong);
+  color: var(--text);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+/* squashes under the finger */
+.timer-key:active:not(:disabled) {
+  transform: translateY(1px) scale(1.06, 0.88);
+  transition-duration: 90ms, 220ms, 220ms, 220ms, 220ms;
+  transition-timing-function: ease-out, ease, ease, ease, ease;
+}
+.timer-face { display: grid; place-items: center; }
+
+/* held: the play key is the accent key */
+.timer-toggle:not([data-running]) {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 26%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.timer-toggle:not([data-running]):hover:not(:disabled) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 86%, white);
+  color: var(--accent-ink);
+  box-shadow: 0 12px 26px color-mix(in srgb, var(--accent) 34%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+/* running: a quiet key with a warm tint; the bars take the deep accent, which
+   still reads on the pale key in the light themes */
+.timer-toggle[data-running] {
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--line-color));
+  background: color-mix(in srgb, var(--accent) 7%, var(--control));
+  color: var(--accent-deep);
+}
+.timer-toggle[data-running]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-strong));
+  color: var(--accent-deep);
+}
+/* the fill flips in a blink and the ink jumps across halfway, so the mark
+   never sits on a fill the colour of itself; the ripple does the moving */
+.timer-toggle {
+  transition:
+    transform var(--spring-bouncy-ms) var(--spring-bouncy),
+    background-color 90ms linear,
+    color 0s linear 45ms,
+    border-color 90ms linear,
+    box-shadow 200ms ease;
+}
+
+/* ── the morph ─────────────────────────────────────────────────────────── */
+
+/* Every dot of the grid stays mounted; dimming one shrinks it away, then
+   lighting one pops it in on a spring, each waiting its turn so the change
+   ripples instead of blinking. */
+.dot-morph > span {
+  --morph-delay: 0ms;
+  --lean-delay: 0ms;
+  transition:
+    scale 150ms ease-in var(--morph-delay),
+    opacity 150ms ease-in var(--morph-delay),
+    translate 420ms var(--spring-snappy) var(--lean-delay);
+}
+.dot-morph > span[data-on] {
+  transition:
+    scale 560ms var(--spring-bouncy) calc(var(--morph-delay) + 70ms),
+    opacity 100ms ease-out calc(var(--morph-delay) + 70ms),
+    translate 420ms var(--spring-snappy) var(--lean-delay);
+}
+/* the turn goes by distance from the middle dot: play bursts outward into
+   two bars, and the bars gather inward to a point */
+.timer-glyph.dot-morph > span {
+  --from-middle: calc(max(var(--c) - 2, 2 - var(--c)) + max(var(--r) - 3, 3 - var(--r)));
+  --morph-delay: calc((5 - var(--from-middle)) * 36ms);
+  /* the tip leads a lean, the back follows */
+  --lean-delay: calc((4 - var(--c)) * 24ms);
+}
+.timer-toggle[data-running] .timer-glyph.dot-morph > span { --morph-delay: calc(var(--from-middle) * 36ms); }
+
+/* ── hover characters ──────────────────────────────────────────────────── */
+
+/* play wants to go: it stretches toward its point and tugs at the lead,
+   kicking up two dots behind it each time */
+.timer-toggle .timer-face { position: relative; }
+.timer-toggle .timer-face::before {
+  position: absolute;
+  top: 6px;
+  left: 0;
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: currentColor;
+  /* rows 2 and 4 of the triangle's empty first column, right at its heel */
+  box-shadow: 0 6px currentColor;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+}
+/* pause gets a little squish; reset leans back toward the start */
+.timer-reset .timer-glyph { transition: translate 420ms var(--spring-snappy); }
+/* a tap leaves touch screens hovering, and the tug would never stop. the tug
+   and squish greet a pointer that just arrived (data-eager): a couple of
+   tugs, then a lean, and nothing at all under a cursor that has just paused */
+@media (hover: hover) {
+  .timer-toggle:not([data-running]):hover:not(:disabled) .timer-glyph > span { translate: calc((var(--c) - 1) * 0.7px) 0; }
+  .timer-toggle[data-eager]:not([data-running]):hover:not(:disabled) .timer-face { animation: timer-eager 1500ms 320ms ease-in-out 2; }
+  .timer-toggle[data-eager]:not([data-running]):hover:not(:disabled) .timer-face::before { animation: timer-kick 1500ms 320ms ease-out 2; }
+  .timer-toggle[data-eager][data-running]:hover:not(:disabled) .timer-glyph { animation: timer-squish 620ms ease-out; }
+  .timer-reset:hover:not(:disabled) .timer-glyph { translate: -2px 0; }
+}
+/* pressed, reset whooshes out one side and back in the other */
+.timer-reset { overflow: clip; }
+.timer-reset .timer-face[data-rewinding] { animation: timer-whoosh 700ms; }
+
+/* running: the key's warm tint swells and settles, slowly enough to forget.
+   the bars keep their full ink, so the control itself never dims */
+.timer-toggle::after {
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border-radius: inherit;
+  /* mostly a glow at the rim: more tint in the fill reads as mud on dark */
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent),
+    inset 0 0 10px color-mix(in srgb, var(--accent) 10%, transparent),
+    0 0 16px color-mix(in srgb, var(--accent) 20%, transparent);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+}
+.timer-toggle[data-running]::after { animation: timer-breathe 6.4s ease-in-out infinite; }
+
+@keyframes timer-eager {
+  0%, 56%, 100% { translate: 0 0; }
+  14% { translate: 2.5px 0; }
+  28% { translate: 0.5px 0; }
+  42% { translate: 2.5px 0; }
+}
+/* the dust lifts on the heel as the triangle lunges, then drifts one dot back */
+@keyframes timer-kick {
+  0%, 6%, 28%, 34%, 56%, 100% { opacity: 0; translate: 0 0; }
+  14%, 42% { opacity: 0.7; translate: 0 0; }
+  26%, 54% { opacity: 0; translate: -3px 0; }
+}
+@keyframes timer-squish {
+  0% { scale: 1 1; }
+  28% { scale: 1.16 0.8; }
+  58% { scale: 0.96 1.06; }
+  100% { scale: 1 1; }
+}
+/* out the left edge with a smear, back in from the right, and a soft landing */
+@keyframes timer-whoosh {
+  0% { translate: 0 0; scale: 1 1; animation-timing-function: cubic-bezier(0.55, 0, 0.9, 0.45); }
+  30% { translate: -2.2rem 0; scale: 1.6 0.8; }
+  30.01% { translate: 2.2rem 0; scale: 1.6 0.8; animation-timing-function: cubic-bezier(0.3, 1.25, 0.5, 1); }
+  78% { translate: 0 0; scale: 0.92 1.08; animation-timing-function: ease-out; }
+  100% { translate: 0 0; scale: 1 1; }
+}
+@keyframes timer-breathe { 50% { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  /* no morph: the glyph just swaps, ink and fill together */
+  .dot-morph > span, .timer-toggle { transition-delay: 0s !important; }
+  .timer-key:is(:hover, :active):not(:disabled) { transform: none; }
+  .timer-key .timer-glyph > span, .timer-key .timer-glyph { translate: none !important; }
+  .timer-key::after, .timer-key .timer-face, .timer-key .timer-face::before, .timer-key .timer-glyph { animation: none !important; }
+}
+
+/* Presses still answer in low power; the loops stop. */
+html.low-power .timer-toggle[data-running]::after { animation: none; }
+html.low-power .timer-toggle[data-eager]:not([data-running]):hover:not(:disabled) .timer-face,
+html.low-power .timer-toggle[data-eager]:not([data-running]):hover:not(:disabled) .timer-face::before { animation-iteration-count: 1; }

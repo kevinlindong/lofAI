@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { PetEvent, PetSignal } from "@/components/pet"
 import { DEFAULT_LISTENER_CONTROLS, MrtStream, type StreamState } from "@/lib/mrt-stream"
 import { LoadGovernor, setLowPower } from "@/lib/render-budget"
-import { soundDraftFor, STATION_PRESETS, type RadioControls, type SoundDraft } from "@/lib/sound-recipe"
+import { soundDraftFor, stationControls, stationPreset, type RadioControls, type SoundDraft } from "@/lib/sound-recipe"
 
 const IDLE_STATE: StreamState = {
   status: "idle", queuePosition: 0, listeners: 0, capacity: 0,
@@ -37,9 +37,9 @@ function useRadioState() {
   const previousVolume = useRef(100)
 
   const selectStation = useCallback((station: string) => {
-    const preset = STATION_PRESETS.find((entry) => entry.id === station)
+    const preset = stationPreset(station)
     if (!preset) return
-    setControls((current) => ({ ...current, station, customPrompt: "", recipe: undefined }))
+    setControls((current) => ({ ...current, ...stationControls(preset) }))
     setSoundDraft((draft) => ({ ...draft, mode: "builder", recipe: preset.recipe }))
   }, [])
 
