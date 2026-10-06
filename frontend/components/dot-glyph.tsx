@@ -1,6 +1,6 @@
 "use client"
 
-import type { CSSProperties } from "react"
+import { memo, type CSSProperties } from "react"
 
 // icons in the same idiom as everything else: struck on a dot grid rather than
 // drawn as curves. a smooth vector icon in the middle of this interface looks
@@ -36,6 +36,13 @@ export const GLYPHS = {
   die5: ["X.X", ".X.", "X.X"],
   die6: ["X.X", "X.X", "X.X"],
   pen: ["....XX", "...XXX", "..XXX.", ".XXX..", "XXX...", "X....."],
+  // the desk: a widget's handle, the drawer pull, the resize corner, the
+  // connections key (something dropping into a tray), and the task bookmark
+  grip: ["XXXXXX", "XXXXXX"],
+  drawer: ["XXXXXXXXX", ".........", "XXXXXXXXX"],
+  resize: ["....X", ".....", "..X.X", ".....", "X.X.X"],
+  tray: ["..X..", "..X..", "X.X.X", ".XXX.", "..X..", ".....", "XXXXX"],
+  bookmark: ["XXXXX", "XXXXX", "XXXXX", "XXXXX", "XXXXX", "XX.XX", "X...X"],
 } as const
 
 export type GlyphName = keyof typeof GLYPHS
@@ -51,7 +58,9 @@ interface DotPatternProps {
   morph?: boolean
 }
 
-export function DotPattern({ rows, dot = 3, className, color = "currentColor", morph = false }: DotPatternProps) {
+// memoized: rows are nearly always constants, and a key that re-renders with a
+// ticking clock (On the desk's focus key) needn't redraw its icon every tick
+export const DotPattern = memo(function DotPattern({ rows, dot = 3, className, color = "currentColor", morph = false }: DotPatternProps) {
   const cols = rows[0].length
   const pitch = dot + 1
 
@@ -86,10 +95,10 @@ export function DotPattern({ rows, dot = 3, className, color = "currentColor", m
       )}
     </span>
   )
-}
+})
 
-export function DotGlyph({ name, ...props }: Omit<DotPatternProps, "rows"> & { name: GlyphName }) {
+export const DotGlyph = memo(function DotGlyph({ name, ...props }: Omit<DotPatternProps, "rows"> & { name: GlyphName }) {
   return <DotPattern rows={GLYPHS[name]} {...props} />
-}
+})
 
 export default DotGlyph

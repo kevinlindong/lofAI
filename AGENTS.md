@@ -22,3 +22,4 @@ states, loading, and errors.
 See [the productivity direction](docs/PRODUCTIVITY.md) for the current tool
 inventory, proposed additions, and integration priorities. Proposals there
 are planning guidance, not a claim that those features already exist.
+New tools arrive as desk widgets, listed in `frontend/components/desk/registry.ts`.

@@ -334,6 +334,64 @@ const pet = load("pet-scene")
 }
 
 {
+  // Arranging the desk (render-budget's busy flag) drops a loop to its
+  // low-power rate the same way, and never touches a class on <html>: the cat
+  // and the visualiser watch that class for theme changes.
+  const saved = [cache.get("render-budget"), cache.get("canvas-loop")]
+  cache.delete("render-budget")
+  cache.delete("canvas-loop")
+  const toggles = []
+  const html = { classList: { toggle: (...args) => toggles.push(args) } }
+  const budget = load("render-budget", { document: { documentElement: html } })
+  const frames = new Map()
+  let id = 0, paints = 0
+  const events = () => ({ addEventListener() {}, removeEventListener() {} })
+  const { canvasLoop } = load("canvas-loop", {
+    window: { matchMedia: () => ({ ...events(), matches: false }) }, document: { ...events(), hidden: false },
+    requestAnimationFrame: fn => { frames.set(++id, fn); return id },
+    cancelAnimationFrame: id => frames.delete(id),
+    IntersectionObserver: class { observe() {} disconnect() {} },
+  })
+  let heard = 0
+  const stop = budget.onLowPowerChange(() => heard++)
+  const loop = canvasLoop({}, () => { paints++ }, () => {}, { fps: 30, lowPowerFps: 20 })
+  let clock = 0
+  const second = () => {
+    const start = paints
+    for (let i = 0; i < 120; i++) {
+      clock += 1000 / 120
+      const pending = Array.from(frames.values())
+      frames.clear()
+      for (const fn of pending) fn(clock)
+    }
+    return paints - start
+  }
+  const full = second()
+  budget.setRenderBusy(true)
+  budget.setRenderBusy(true)
+  assert.equal(budget.renderBusy(), true)
+  const busy = second()
+  budget.setRenderBusy(false)
+  const restored = second()
+  assert.ok(full >= 29 && full <= 31, `${full} paints at full rate`)
+  assert.ok(busy >= 19 && busy <= 21, `${busy} paints while busy`)
+  assert.ok(restored >= 29 && restored <= 31, `${restored} paints after`)
+  assert.equal(heard, 2, "listeners hear busy turning on and off, once each")
+  assert.equal(toggles.length, 0, "busy never toggles a class on <html>")
+  budget.setLowPower(true)
+  budget.setRenderBusy(true)
+  assert.ok(second() <= 21, "busy in low power stays at the low rate")
+  budget.setRenderBusy(false)
+  budget.setLowPower(false)
+  assert.equal(toggles.length, 2, "only low power itself touches the class")
+  loop.dispose()
+  stop()
+  cache.set("render-budget", saved[0])
+  cache.set("canvas-loop", saved[1])
+  console.log("PASS  arranging the desk damps canvas loops like low power, with no class on <html>")
+}
+
+{
   // The governor enters low power on the first sign of pressure and leaves
   // only after a long, clearly healthy stretch, so it cannot oscillate.
   const { LoadGovernor, MIN_LOW_POWER_MS, TROUBLE_MEMORY_MS } = load("render-budget")

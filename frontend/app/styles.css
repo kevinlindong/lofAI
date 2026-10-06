@@ -5,3 +5,11 @@
 @import "./music-panel.css";
 @import "./integrations.css";
 @import "./timer.css";
+@import "./tasks.css";
+@import "./desk.css";
+@import "./widgets/radio.css";
+@import "./widgets/cat.css";
+@import "./widgets/desk-task.css";
+@import "./widgets/notebook.css";
+@import "./widgets/clock.css";
+@import "./widgets/today.css";

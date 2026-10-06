@@ -1,0 +1,324 @@
+/* The desk-task widget. Owned by WP2 (On the desk). One task for this
+   session: a label, the task, its source, a few quiet keys, and a bookmark
+   ribbon hanging over the frame's top edge (drawn in the frame's .wf-deco,
+   since the card clips its body). */
+
+/* The box is one slot tall at either size (88–184px of content since v3), so
+   the card gives the label row the top, the keys one row at the bottom of the
+   body, and lets the body take the slack: in a taller box it sits in the
+   middle rather than hanging from the top. The bands below are the content
+   box's own height (it is a size container), so one rule covers every window
+   in SPEC3 §2; while a sheet is unfolded the height is unknown and the roomy
+   branch applies, which is right, since the card has grown. */
+.dt { display: flex; min-width: 0; min-height: 0; flex: 1 1 auto; flex-direction: column; gap: 8px; }
+.dt-body { display: flex; min-height: 0; flex-direction: column; gap: 8px; margin-block: auto; }
+/* with a sheet open the card grows downwards: the body stays at the top */
+.wf[data-expanded] .dt-body { margin-bottom: 0; }
+/* the desk just cleared: the question waits out the card's shrink (the desk
+   holds one for 400ms), then fades in at the new height instead of hopping */
+@keyframes dt-settle { from { opacity: 0; } }
+.dt[data-settling] { animation: dt-settle 180ms ease-out 520ms backwards; }
+/* the label row keeps clear of the tack's circle (24px, 10px in, 32px of hit
+   area; 40 on touch). The ribbon hangs from the top-left corner now */
+.dt-head { display: flex; height: 11px; align-items: baseline; gap: 8px; padding-right: 18px; white-space: nowrap; }
+@media (pointer: coarse) { .dt-head { padding-right: 22px; } }
+/* what's left of a block, at the far end, as the timer says "held" */
+/* the row is the label's height, so starting a block never grows it */
+.dt-whisper { margin-left: auto; color: var(--accent-deep); font-size: 0.68rem; font-variant-numeric: tabular-nums; font-weight: 650; letter-spacing: 0.04em; line-height: 11px; white-space: nowrap; }
+
+.dt-text {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  font-size: 1.02rem;
+  font-weight: 560;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.dt[data-size="s"] .dt-text { font-size: 0.95rem; line-height: 1.3; }
+.dt-text[data-done] {
+  color: var(--text-dim);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--text-dim) 60%, transparent);
+  transition: color 240ms ease;
+}
+.dt-text-check { margin-right: 8px; color: var(--accent); vertical-align: middle; }
+/* a soft landing in just the task: the task keeps one line, the keys get the room */
+.dt[data-size="s"][data-view="landing"] .dt-text { -webkit-line-clamp: 1; }
+.dt-ask { margin: 0; color: var(--text-dim); font-size: 0.9rem; line-height: 1.4; text-wrap: pretty; }
+.dt-line { margin: 0; color: var(--text-dim); font-size: 0.84rem; line-height: 1.45; text-wrap: pretty; }
+.dt-line b { color: var(--text); font-weight: 650; }
+.dt-source { display: flex; align-items: center; gap: 6px; margin: -3px 0 0; color: var(--text-dim); font-size: 0.66rem; }
+.dt-source .service-icon { flex: none; }
+.dt-source a { margin-left: 2px; border-radius: 4px; color: var(--accent-deep); }
+.dt-source a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.dt-source.is-inline { min-height: 32px; margin: 0; padding-left: 4px; }
+.dt-source.is-inline a { margin-left: 0; }
+/* on the label row: at its far end, in the label's own weight, and its link
+   takes a finger's worth of room without the 11px row growing */
+.dt-source.is-head {
+  min-width: 0;
+  min-height: 0;
+  max-width: 60%;
+  margin-left: auto;
+  padding-left: 0;
+  font-size: 0.62rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+.dt-source.is-head a { position: relative; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dt-source.is-head a::before { position: absolute; inset: -16px -6px; content: ""; }
+/* "back to the list" at the source row's far end */
+.dt-source > .dt-link { min-height: 24px; margin-left: auto; font-size: 0.72rem; }
+.dt-message { margin: 0; color: var(--text-dim); font-size: 0.7rem; line-height: 1.5; }
+/* always there for the screen reader; empty, it takes no room */
+.dt-message:empty { margin-top: -10px; }
+
+/* ── keys: small lowercase pills; [done] is the one filled in ─────────── */
+
+.dt-keys { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 2px; }
+.dt-key {
+  display: inline-flex;
+  height: 32px;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px var(--line-color);
+  color: var(--text);
+  font-size: 0.74rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease, transform var(--spring-jelly-ms) var(--spring-jelly);
+}
+.dt-key:hover:not(:disabled, [aria-disabled="true"]) {
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+/* it gives under the finger and springs back */
+.dt-key:active:not(:disabled, [aria-disabled="true"]) {
+  transform: scale(0.94);
+  transition-duration: 160ms, 160ms, 160ms, 90ms;
+  transition-timing-function: ease, ease, ease, ease-out;
+}
+.dt-key:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.dt-key:disabled { cursor: progress; opacity: 0.55; }
+.dt-key[aria-disabled="true"] { cursor: default; }
+.dt-key.is-go { background: var(--accent); box-shadow: none; color: var(--accent-ink); }
+.dt-key.is-go:hover:not(:disabled, [aria-disabled="true"]) {
+  background: var(--accent);
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+/* running, the focus key says what's left, in the accent */
+.dt-focus { font-variant-numeric: tabular-nums; }
+.dt-focus[data-mode="pause"] { color: var(--accent-deep); }
+.dt-focus[data-mode="start"] > :first-child,
+.dt-focus[data-mode="resume"] > :first-child { color: var(--accent); }
+.dt-mark { flex: none; color: var(--accent); }
+.dt-chevron { opacity: 0.7; transition: rotate 240ms var(--ease-out); }
+.dt-trigger[aria-expanded="true"] { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.dt-trigger[aria-expanded="true"] .dt-chevron { rotate: 180deg; }
+.dt-link {
+  min-height: 28px;
+  /* on the text's own left edge; the focus ring sits outside */
+  padding: 0;
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 0.72rem;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.dt-link:hover { color: var(--accent-deep); }
+.dt-link:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* [done] pressed: the check pops, the task dims, the ribbon lifts away, and
+   everything else steps back for a moment */
+@keyframes dt-check {
+  0% { scale: 0.2; }
+  55% { scale: 1.45; }
+}
+.dt-key[data-checked] .dt-check { animation: dt-check 520ms var(--ease-out); }
+.dt[data-finishing] :is(.dt-key:not([data-dt="done"]), .dt-link, .dt-source) { opacity: 0.35; pointer-events: none; transition: opacity 200ms ease; }
+
+/* ── the picker: unfolds over the neighbours (a transient expansion) ─── */
+
+.dt-picker {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line-strong);
+  outline: none;
+  animation: tray-in 240ms ease-out;
+}
+.dt-pick-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; margin: 0 -8px; padding: 0; list-style: none; }
+.dt-pick {
+  display: flex;
+  width: 100%;
+  min-height: 36px;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 0.84rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.dt-pick:hover,
+.dt-pick:focus-visible { outline: none; background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.dt-pick:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
+.dt-pick-text { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dt-pick-source { flex: none; color: var(--text-faint); }
+.dt-pick-none { margin: 0; color: var(--text-faint); font-size: 0.74rem; }
+/* the landing's sheet: the same shell, a short column of plain choices */
+.dt-picker.is-more { gap: 1px; margin-inline: -8px; padding-inline: 8px; }
+.dt-pick-new { display: flex; min-width: 0; gap: 6px; }
+.dt-input {
+  height: 34px;
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 0 12px;
+  border: 1px solid var(--line-color);
+  border-radius: 999px;
+  outline: none;
+  background: var(--surface-soft);
+  color: var(--text);
+  font-size: 0.82rem;
+}
+.dt-input::placeholder { color: var(--text-dim); }
+.dt-input:focus { border-color: var(--accent); }
+.dt-add { width: 34px; height: 34px; justify-content: center; padding: 0; }
+.dt-picker > .dt-link { justify-self: start; }
+
+/* ── the ribbon ────────────────────────────────────────────────────────── */
+
+/* 5×7 accent dots hanging 10px over the top edge; the two rows above the
+   edge are where it folds over, a shade deeper */
+.wf-deco > .dt-ribbon {
+  position: absolute;
+  top: -10px;
+  left: var(--wf-pad);
+  display: grid;
+  gap: 1px;
+  color: var(--accent);
+  transform-origin: 50% 0;
+}
+.dt-ribbon-fold { color: color-mix(in srgb, var(--accent) 72%, #000); }
+/* put on the desk, it drops in once (the fade is its own, so the spring's
+   overshoot never dims it); taken off, it lifts away */
+@keyframes dt-ribbon-drop { from { translate: 0 -10px; scale: 1 0.25; } }
+@keyframes dt-fade-in { from { opacity: 0; } }
+@keyframes dt-ribbon-lift { to { opacity: 0; translate: 3px -14px; rotate: 10deg; } }
+.dt-ribbon[data-drop] { animation: dt-ribbon-drop var(--spring-bouncy-ms) var(--spring-bouncy) backwards, dt-fade-in 120ms ease-out backwards; }
+.dt-ribbon[data-lift] { animation: dt-ribbon-lift 420ms var(--ease-out) forwards; }
+
+/* ── fitting the box, by its own size ─────────────────────────────────── */
+
+/* just the task: one row of keys, never wrapped — [done], the swap key as its
+   chevron alone, and where it came from as its mark */
+.dt[data-size="s"] .dt-keys { flex-wrap: nowrap; }
+.dt[data-size="s"] .dt-key { height: 30px; }
+/* the swap key is its chevron alone here (its words stay the key's name); the
+   empty card keeps "pick a task" in words, and gives up the bookmark instead */
+.dt[data-size="s"] .dt-trigger { padding-inline: 9px; }
+.dt[data-size="s"] :is([data-dt="swap"], [data-dt="more"]) .dt-key-text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.dt[data-size="s"] .dt-mark { display: none; }
+.dt[data-size="s"] .dt-source.is-inline { min-height: 30px; padding-left: 0; }
+.dt[data-size="s"] .dt-source.is-inline a { position: relative; }
+.dt[data-size="s"] .dt-source.is-inline a::before { position: absolute; inset: -8px; content: ""; }
+.dt[data-size="s"] .dt-ask { font-size: 0.8rem; }
+/* the landing's one sentence, narrow: smaller, and two lines at the most */
+.dt[data-size="s"] .dt-line {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 0.74rem;
+  line-height: 1.3;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* tight columns (a phone's two columns at M, every S): the keys lose their
+   air, so one row of them still fits across */
+@container widget (max-width: 300px) {
+  .dt-key { gap: 5px; padding-inline: 10px; }
+  .dt[data-size="m"] .dt-key { font-size: 0.72rem; }
+  .dt-text { font-size: 0.92rem; }
+  /* the label ends clear of the grip that shows on hover */
+  .dt-head .label { letter-spacing: 0.1em; }
+}
+/* the narrowest one-slot box (a 320px phone): the keys lose their last air,
+   and the service's name goes with them — its mark still links to the task */
+@container widget (max-width: 150px) {
+  .dt[data-size="s"] .dt-keys { gap: 4px; }
+  .dt[data-size="s"] .dt-key { gap: 4px; padding-inline: 8px; font-size: 0.7rem; }
+  .dt[data-size="s"] .dt-source.is-inline a { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .dt[data-size="s"] .dt-source.is-inline { position: relative; }
+}
+
+/* a short box (every M under about 1440×800, and the landing in any of them):
+   the task keeps one line and "back to the list" stays in the grip menu */
+@container widget (max-height: 110px) {
+  /* one line, with an ellipsis: a clamped -webkit-box would cut the line box
+     itself in half here, so the plain one-line rules do it */
+  :is(.dt-text, .dt-ask) { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* and one row of keys: wrapped, the second row would leave the box */
+  .dt-keys { flex-wrap: nowrap; }
+  .dt[data-view="landing"] .dt-text { display: none; }
+}
+@container widget (max-height: 149px) {
+  .dt-link[data-dt="back"] { display: none; }
+}
+@media (pointer: coarse) {
+  @container widget (max-height: 175px) {
+    .dt-link[data-dt="back"] { display: none; }
+  }
+}
+@media (pointer: coarse) {
+  .dt-key, .dt-link, .dt-source > .dt-link { min-height: 44px; }
+  .dt-key { height: auto; }
+  /* a short box has no 44px to give: the key keeps 36 and reaches the rest */
+  @container widget (max-height: 110px) {
+    .dt-key { position: relative; min-height: 36px; }
+    .dt-key::before { position: absolute; inset: -4px; content: ""; }
+  }
+  .dt-pick { min-height: 44px; }
+  .dt-source a { display: inline-flex; min-width: 44px; min-height: 44px; align-items: center; }
+  .dt-input { height: 44px; }
+  .dt-add { width: 44px; height: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* no drop and no lift: the ribbon is simply there, then simply gone */
+  .dt-ribbon[data-drop] { animation: none; }
+  .dt-ribbon[data-lift] { animation: none; opacity: 0; }
+  .dt-key[data-checked] .dt-check,
+  .dt-picker { animation: none; }
+}
+
+/* ── the drawer's picture and the pull's peek ──────────────────────────── */
+
+.preview-desk-task { position: relative; justify-items: start; }
+.preview-dt-ribbon { position: absolute; top: 0; right: 34px; display: grid; color: var(--accent); }
+.preview-dt-text { display: block; width: 118px; height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--text) 62%, transparent); }
+.preview-dt-keys { display: flex; gap: 5px; margin-top: 4px; }
+.preview-dt-keys > i { width: 30px; height: 12px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--line-strong); }
+.preview-dt-keys > i.is-go { background: var(--accent); box-shadow: none; }
+.peek-desk-task { align-items: center; color: var(--accent); }
+
+

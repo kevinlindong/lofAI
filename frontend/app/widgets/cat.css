@@ -1,0 +1,69 @@
+/* The cat widget (components/widgets/cat). Owned by WP6 (cat character):
+   its card, the drawer tile, and the ears on the pull. */
+
+/* On the quiet card at every size: the cat stands on the card's floor,
+   centred, with its ground shadow. The card's padding is what keeps its
+   pixels off the edge and what its reaching poses lean into, so lib/cat-desk
+   sizes it from --wf-pad (16 to 20px; the phone's smaller slots keep 12). */
+.desk[data-bucket="phone"] .wf[data-type="cat"] { --wf-pad: 12px; }
+
+/* ── the drawer tile: asleep, z and all; in the hand, awake ───────────── */
+
+.preview-cat { color: var(--dot-4); }
+.preview-cat-nap { display: grid; justify-items: center; gap: 10px; }
+.preview-cat-note { color: var(--text-faint); font-size: 0.7rem; font-style: italic; letter-spacing: 0.02em; line-height: 1; }
+/* carried out of the drawer, the ghost is the widget's size and the cat in it
+   stands at the bottom centre at the canvas' pitch, as it will on landing */
+.drawer-ghost .preview-cat { position: absolute; inset: 0; display: block; width: auto; height: auto; }
+.preview-cat-awake {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  translate: -50% 0;
+  transform-origin: 50% 100%;
+}
+.preview-cat-awake > span { position: absolute; line-height: 0; }
+
+/* ── on the pull: its ears and the top of its head, over the edge ─────── */
+
+/* it takes no room in the pill: the head is placed on the pill itself, at
+   its middle, so the pill keeps its width and the dots stay centred. alone
+   on the pull its row of peeks leaves the pill's flow too, gap and all */
+.drawer-pull-peeks:has(> .peek-cat:only-child) { position: absolute; inset: 0; }
+.peek-cat { position: absolute; inset: 0; display: block; height: auto; pointer-events: none; }
+.peek-cat-head {
+  position: absolute;
+  left: 0;
+  right: 0;
+  /* the crown of its head lies along the pill's top edge, the ears over it */
+  bottom: calc(100% - 2px);
+  display: block;
+  width: fit-content;
+  margin-inline: auto;
+  line-height: 0;
+  color: var(--dot-4);
+  /* a rim of page colour, so it reads over whatever scrolls behind the pull */
+  filter: drop-shadow(0 0 1px var(--bg)) drop-shadow(0 0 1px var(--bg));
+  transition: opacity 120ms ease;
+}
+/* while the drawer's open (and folded to its strip under a carry) it's in
+   there with the tiles, not peeking */
+.drawer-pull[aria-expanded="true"] .peek-cat-head { opacity: 0; }
+/* it peeps up over the edge a few times after it goes in, and sinks back;
+   after that it only looks up when the pull is reached for */
+.peek-cat-head { animation: peek-cat-peep 8s ease-in-out 1.2s 3; }
+.drawer-pull:is(:hover, :focus-visible) .peek-cat-head { animation: peek-cat-look 1s ease-in-out; }
+@keyframes peek-cat-peep {
+  0%, 12%, 100% { translate: 0 0; }
+  4%, 9% { translate: 0 -3px; }
+}
+@keyframes peek-cat-look {
+  0%, 100% { translate: 0 0; }
+  30%, 70% { translate: 0 -3px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .peek-cat-head,
+  .drawer-pull:is(:hover, :focus-visible) .peek-cat-head { animation: none; }
+}
+html.low-power .peek-cat-head,
+html.low-power .drawer-pull:is(:hover, :focus-visible) .peek-cat-head { animation: none; }

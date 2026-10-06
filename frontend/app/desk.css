@@ -1,0 +1,1045 @@
+/* The desk (components/desk): every tool is a widget on a lattice of slots.
+   The slot metrics are written onto .desk by the desk itself (--col, --row,
+   --gap, --pitch-x, --pitch-y, --cols, --top, --bottom); a frame's committed slot is
+   --x/--y and its footprint --w/--h, in slots. Motion (components/desk/
+   motion.ts) moves frames with the individual `translate`/`scale`/`rotate`
+   properties and `opacity`, which nothing here sets at rest, so the two
+   never fight. Boxes are fixed: nothing on the desk is measured. */
+
+.desk {
+  /* the usual desk at 1440×800, until the desk has looked at the window */
+  --col: 196px;
+  --row: 157px;
+  --gap: 20px;
+  --pitch-x: 216px;
+  --pitch-y: 177px;
+  --cols: 6;
+  --top: 40px;
+  --bottom: 72px;
+  --rows: 3;
+  --rows-arranging: 4;
+  --radius: 24px;
+  /* card padding: 16px on the smallest slots, 20px from 170 up */
+  --pad: clamp(16px, calc((var(--col) - 150px) * 0.2 + 16px), 20px);
+  position: relative;
+  z-index: 1;
+  width: calc(var(--cols) * var(--pitch-x) - var(--gap));
+  /* --reach: an open tray or sheet near the bottom (widget-frame.tsx) */
+  height: calc(max(var(--rows), var(--reach, 0)) * var(--pitch-y) - var(--gap));
+  /* the bottom reserve keeps the drawer pull clear of the last row */
+  margin: var(--top) auto var(--bottom);
+  /* until the save and the window are known */
+  visibility: hidden;
+}
+.desk[data-ready] { visibility: visible; }
+/* a spare row while arranging, so there's always open space to drop into */
+.desk[data-arranging] { height: calc(max(var(--rows-arranging), var(--reach, 0)) * var(--pitch-y) - var(--gap)); }
+.desk[data-bucket="phone"] { --radius: 22px; --pad: 16px; }
+
+/* ── frames ────────────────────────────────────────────────────────────── */
+
+.wf {
+  --wf-radius: var(--radius);
+  --wf-pad: var(--pad);
+  position: absolute;
+  left: calc(var(--x) * var(--pitch-x));
+  top: calc(var(--y) * var(--pitch-y));
+  width: calc(var(--w) * var(--pitch-x) - var(--gap));
+  height: calc(var(--h) * var(--pitch-y) - var(--gap));
+  border-radius: var(--wf-radius);
+  /* no paint containment: the tack and the open trays reach past the frame */
+  contain: layout style;
+  isolation: isolate;
+  /* brought into view it clears the menu at the top; the page's own scroll
+     padding (below) keeps it clear of the drawer pull at the bottom */
+  scroll-margin: 24px 24px 0;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  /* a long press lifts; it never opens the callout */
+  -webkit-touch-callout: none;
+}
+/* the small square is a little rounder for its size, and keeps 16px */
+.wf[data-size="s"] { --wf-radius: 22px; --wf-pad: 16px; }
+.wf :is(input, textarea, [contenteditable]) { user-select: text; -webkit-user-select: text; }
+.wf:focus { outline: none; }
+.wf:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
+
+/* the body holds the surface and the content; an expansion carries both */
+.wf-body {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: inherit;
+}
+/* any quiet spot lifts, so it says so; controls keep their own cursors, and an
+   open tray or sheet never lifts */
+.wf-body { cursor: grab; }
+.wf-body :is(label, [data-no-lift]),
+.wf[data-expanded] .wf-body { cursor: auto; }
+
+/* One quiet surface, on its own layer so a resize can morph it without
+   scaling the words: a solid fill over the page colour, a hairline ring, no
+   shadow and no blur. */
+.wf-surface {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  transform-origin: 0 0;
+  transition: background-color 160ms ease, box-shadow 160ms ease;
+}
+.wf[data-surface="card"] .wf-surface {
+  background: linear-gradient(color-mix(in srgb, var(--surface-strong) 80%, transparent) 0 0), var(--bg);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--line-color) 60%, transparent);
+}
+.dark .wf[data-surface="card"] .wf-surface {
+  background: linear-gradient(color-mix(in srgb, var(--surface-strong) 74%, transparent) 0 0), var(--bg);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--line-color) 85%, transparent);
+}
+
+/* The content is the box, exactly: a size container (fixed boxes make size
+   containment honest), laid out per size by each widget's container
+   queries. Lists scroll inside; nothing ever grows the frame. */
+.wf-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  box-sizing: border-box;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: inherit;
+  container: widget / size;
+}
+.wf[data-surface="card"] .wf-content { padding: var(--wf-pad); }
+/* phones narrower than 348px may compact further: nothing is ever unreachable */
+@media (max-width: 347px) {
+  .wf-content { overflow-y: auto; overscroll-behavior: contain; }
+}
+
+/* Bare widgets (the cat, the clock's time) have no surface at rest. Under the
+   hand they show a ghost of one, so it's clear what you'd pick up. Keyboard
+   focus shows it too; a click (petting the cat) doesn't leave it up. */
+.wf[data-surface="bare"]:is(:focus-visible, :has(:focus-visible), [data-lifted]) .wf-surface {
+  background: color-mix(in srgb, var(--surface-strong) 38%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--line-color) 55%, transparent);
+}
+@media (hover: hover) {
+  .wf[data-surface="bare"]:hover .wf-surface {
+    background: color-mix(in srgb, var(--surface-strong) 38%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--line-color) 55%, transparent);
+  }
+}
+/* arranging or pinned, a bare widget's extent is a dotted footprint */
+.desk[data-arranging] .wf[data-surface="bare"]:not([data-lifted]) .wf-surface,
+.wf[data-pinned][data-surface="bare"] .wf-surface {
+  outline: 1.5px dotted color-mix(in srgb, var(--text-faint) 70%, transparent);
+  outline-offset: -1px;
+}
+
+/* Trays, dial sheets and pickers unfold over the neighbours without moving
+   them: the frame rises above the rest and its surface follows the content
+   down until it folds. Open, the content keeps its width as a container and
+   lets its height go. */
+.wf[data-expanded] { z-index: 30; }
+.wf[data-expanded] .wf-body {
+  bottom: auto;
+  height: auto;
+  min-height: 100%;
+  scroll-margin: 24px 24px 0;
+}
+.wf[data-expanded] .wf-content {
+  height: auto;
+  min-height: calc(var(--h) * var(--pitch-y) - var(--gap));
+  overflow: visible;
+  container-type: inline-size;
+}
+.wf[data-expanded] .wf-surface { box-shadow: 0 0 0 1px color-mix(in srgb, var(--line-color) 60%, transparent), var(--shadow-soft); }
+
+/* ── elevation: one scale, pre-rendered shadows, only opacity moves ────── */
+
+/* rest is the hairline ring alone; hover lays down a contact shadow; lifted
+   casts one (motion.ts writes the cast layer's opacity from the lift) */
+.wf-shadow {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+}
+.wf-contact {
+  box-shadow: 0 1px 2px rgb(30 40 35 / 0.07), 0 6px 14px -6px rgb(30 40 35 / 0.16);
+  transition: opacity 140ms ease;
+}
+.wf-cast { box-shadow: 0 36px 64px -20px rgb(30 40 35 / 0.30), 0 16px 28px -16px rgb(30 40 35 / 0.22); }
+.dark .wf-contact { box-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 6px 14px -6px rgb(0 0 0 / 0.45); }
+.dark .wf-cast { box-shadow: 0 36px 70px -18px rgb(0 0 0 / 0.6), 0 16px 30px -14px rgb(0 0 0 / 0.45); }
+/* a pinned widget doesn't invite a drag, so hovering it lifts nothing */
+@media (hover: hover) {
+  .wf[data-surface="card"]:not([data-pinned], [data-expanded]):hover .wf-contact { opacity: 1; }
+}
+.wf[data-lifted] { z-index: 40; }
+.wf[data-lifted] .wf-cast { opacity: 1; }
+.wf[data-lifted] .wf-contact { opacity: 0.35; }
+.wf[data-lifted] * { cursor: grabbing !important; }
+/* in the hand a card is opaque, so what's under it doesn't show through; a
+   bare widget gets its ghost surface */
+.wf[data-lifted][data-surface="card"] .wf-surface { background: linear-gradient(var(--surface-strong) 0 0), var(--bg); }
+
+/* ── the grip ──────────────────────────────────────────────────────────── */
+
+/* six by two dots centred on the top edge, a 44×24 target */
+.wf-grip {
+  position: absolute;
+  z-index: 3;
+  top: 4px;
+  left: 50%;
+  display: grid;
+  width: 44px;
+  height: 24px;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--text-faint);
+  cursor: grab;
+  opacity: 0;
+  translate: -50% 0;
+  transition: opacity 120ms ease, color 120ms ease, background-color 120ms ease;
+}
+/* a one-slot header reaches past the middle: there the grip sits on the very
+   edge and the header starts a little lower, clear of its dots (the cat
+   has no header, and sizes itself from its padding) */
+.wf[data-size="s"] .wf-grip { top: 0; }
+.wf[data-size="s"][data-surface="card"]:not([data-type="cat"]) .wf-content { padding-top: 20px; }
+/* until someone has moved something once, every grip shows faintly: the one
+   hint that these cards move (the returning-user note says it in words) */
+.desk[data-new] .wf-grip { opacity: 0.4; }
+.wf:is(:hover, :focus-visible, :has(:focus-visible)) .wf-grip { opacity: 1; }
+.wf-grip:hover { background: color-mix(in srgb, var(--text) 6%, transparent); color: var(--text-dim); }
+.wf-grip:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.wf[data-lifted] .wf-grip { color: var(--accent); opacity: 1; cursor: grabbing; }
+/* pinned, the grip still opens the menu, but it's quieter: it won't move */
+.wf[data-pinned] .wf-grip { color: var(--text-faint); cursor: pointer; }
+@media (hover: none) {
+  /* no hover to reveal it on touch: always there, quietly, and it owns its gestures */
+  .wf-grip { opacity: 0.45; touch-action: none; }
+}
+
+/* ── the tack (a pin that keeps a widget where it is) ─────────────────── */
+
+/* The tack, in a circle inside the card's top-right corner (not overhanging,
+   so it never crosses a neighbour): a 24px circle 10px in from both edges,
+   with a small dot tack in it. Its hit area reaches past the circle through a
+   pseudo-element, 32px (40 on touch), which every header keeps clear. */
+.wf-pin {
+  --ring: 24px;
+  --hit: 32px;
+  --in: 10px;
+  position: absolute;
+  z-index: 5;
+  top: var(--in);
+  right: var(--in);
+  display: grid;
+  width: var(--ring);
+  height: var(--ring);
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface-strong);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  color: var(--text-dim);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 140ms ease, color 140ms ease, background-color 140ms ease, box-shadow 160ms ease;
+}
+/* the hit area, centred on the circle and taking no room of its own */
+.wf-pin::before {
+  position: absolute;
+  width: var(--hit);
+  height: var(--hit);
+  border-radius: 50%;
+  content: "";
+}
+@media (pointer: coarse) { .wf-pin { --hit: 40px; } }
+/* the one-slot widgets have less corner to spare */
+.wf[data-size="s"] .wf-pin { --ring: 22px; --in: 8px; }
+.wf-pin:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; opacity: 1; }
+/* unpinned: the card's own surface and a hairline ring, offered on hover or
+   focus (never on touch). not while pinned or mid-unpin: those say it with
+   their own opacity */
+@media (hover: hover) {
+  .wf:is(:hover, :focus-within):not([data-lifted], [data-pinned], [data-unpinning]) .wf-pin { opacity: 1; }
+  .wf-pin:hover { color: var(--text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line-strong) 160%, transparent); }
+}
+.wf:has(:focus-visible):not([data-lifted], [data-pinned], [data-unpinning]) .wf-pin { opacity: 1; }
+/* pinned: the circle fills with the accent, the tack goes to its ink, and a
+   very soft contact shadow sits under it. always there */
+.wf[data-pinned] .wf-pin {
+  background: var(--accent);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--accent-ink);
+  opacity: 1;
+}
+/* the side view and the head share one spot; the glyphs move as one body
+   (the strike, the wiggle) */
+.wf-pin-glyphs { display: grid; place-items: center; transform-origin: 50% 70%; }
+.wf-pin-glyphs > * { grid-area: 1 / 1; transition: opacity 80ms ease; }
+.wf-pin-side { display: grid; }
+.wf-pin-head { opacity: 0; }
+.tack-head { position: relative; display: grid; }
+.tack-head > * { grid-area: 1 / 1; }
+.wf[data-pinned] .wf-pin-head { opacity: 1; }
+.wf[data-pinned] .wf-pin-side { opacity: 0; }
+/* pinning: it rises as the side view, then drives in as the head */
+.wf[data-pinning="up"] .wf-pin-side { opacity: 1; }
+.wf[data-pinning="up"] .wf-pin-head { opacity: 0; }
+/* unpinning: the head pops back into the side view and tips away; as it
+   goes, the accent drains from the circle into the unpinned one (offered
+   while hovered, else fading out with the tack) */
+.wf[data-unpinning] .wf-pin { background: var(--accent); color: var(--accent-ink); opacity: 1; }
+.wf[data-unpinning="pop"] .wf-pin-head { opacity: 1; }
+.wf[data-unpinning="pop"] .wf-pin-side { opacity: 0; }
+.wf:is([data-unpinning="tip"], [data-unpinning="gone"]) .wf-pin {
+  background: var(--surface-strong);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  color: var(--text-dim);
+  opacity: 0;
+  transition-duration: 170ms;
+}
+@media (hover: hover) {
+  .wf:is(:hover, :focus-within):is([data-unpinning="tip"], [data-unpinning="gone"]) .wf-pin { opacity: 1; }
+}
+.wf:has(:focus-visible):is([data-unpinning="tip"], [data-unpinning="gone"]) .wf-pin { opacity: 1; }
+/* a strike sends a ring of eight dots out from the head */
+.wf-pin-burst { position: absolute; inset: 0; pointer-events: none; }
+.wf-pin-burst > i {
+  position: absolute;
+  top: calc(50% - 1.5px);
+  left: calc(50% - 1.5px);
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0;
+}
+/* each dot along its own spoke: turned first, then out (radius 5 → 16px) */
+@keyframes wf-pin-burst {
+  from { opacity: 0.8; transform: rotate(calc(var(--i) * 45deg)) translateY(-5px); }
+  to { opacity: 0; transform: rotate(calc(var(--i) * 45deg)) translateY(-16px); }
+}
+.wf[data-burst] .wf-pin-burst > i { animation: wf-pin-burst 320ms cubic-bezier(0.2, 0.7, 0.3, 1) forwards; }
+/* tugged while pinned: its ring pulses once, pointing at the way out */
+.wf-pin-pulse { position: absolute; inset: 0; border-radius: 50%; pointer-events: none; }
+@keyframes wf-pin-pulse {
+  from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 70%, transparent); }
+  to { box-shadow: 0 0 0 5px transparent; }
+}
+.wf[data-pulse] .wf-pin-pulse { animation: wf-pin-pulse 480ms ease-out; }
+@media (hover: none) {
+  .wf:not([data-pinned]) .wf-pin { opacity: 0; pointer-events: none; }
+}
+
+/* ── the resize corner and overhangs ───────────────────────────────────── */
+
+/* a 5×5 dot triangle, 28×28 to catch; only where there's a fine pointer */
+.wf-resize {
+  position: absolute;
+  z-index: 3;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  color: var(--text-faint);
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .wf:hover .wf-resize { opacity: 1; }
+}
+@media (hover: none), (pointer: coarse) {
+  .wf-resize { display: none; }
+}
+/* an open tray or sheet covers the corner it would sit in; in the hand it's just a widget */
+.wf[data-expanded] .wf-resize { display: none; }
+.wf[data-lifted] .wf-resize { opacity: 0; }
+.wf[data-resizing] .wf-resize { color: var(--accent); opacity: 1; }
+
+/* overhangs a widget draws past its edge: a ribbon, a flag. The top-right
+   corner is the tack's; decoration keeps to the top-left */
+.wf-deco {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* ── the lattice, the landing footprint ────────────────────────────────── */
+
+/* While arranging, every slot shows as a faint well and a dot marks every
+   gutter crossing, like registration marks. Invisible at rest; it fades in
+   with a lift and out a little after everything has come to rest. */
+/* it reaches half a gap past the board on every side (the outer marks) and
+   clips there: the spare row's wells are drawn at rest, and never stretch the page */
+.desk-grid {
+  position: absolute;
+  z-index: 0;
+  inset: calc(var(--gap) / -2);
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 240ms ease;
+}
+.desk-grid::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle at 1.5px 1.5px, color-mix(in srgb, var(--text-faint) 90%, transparent) 1.5px, transparent 2px);
+  background-position: -1.5px -1.5px;
+  background-size: var(--pitch-x) var(--pitch-y);
+}
+.desk-grid > i {
+  position: absolute;
+  left: calc(var(--x) * var(--pitch-x) + var(--gap) / 2);
+  top: calc(var(--y) * var(--pitch-y) + var(--gap) / 2);
+  width: var(--col);
+  height: var(--row);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--text) 1.8%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-faint) 11%, transparent);
+}
+.dark .desk-grid > i { background: color-mix(in srgb, var(--text) 2.6%, transparent); }
+.desk[data-arranging] .desk-grid { opacity: 1; transition-duration: 160ms; }
+/* an empty desk shows where things could go */
+.desk[data-empty] .desk-grid { opacity: 0.35; }
+
+/* where the widget in hand will land: an accent wash with a ring; a landing
+   that will pin shows dots, a solid ring and the tack's head at its corner */
+.desk-landing,
+.desk-flash {
+  --x: 0;
+  --y: 0;
+  --w: 1;
+  --h: 1;
+  position: absolute;
+  z-index: 0;
+  left: calc(var(--x) * var(--pitch-x));
+  top: calc(var(--y) * var(--pitch-y));
+  width: calc(var(--w) * var(--pitch-x) - var(--gap));
+  height: calc(var(--h) * var(--pitch-y) - var(--gap));
+  border-radius: var(--radius);
+  opacity: 0;
+  pointer-events: none;
+}
+.desk-landing {
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.desk-landing[data-pin] {
+  background:
+    radial-gradient(circle at 2px 2px, color-mix(in srgb, var(--accent) 55%, transparent) 1.4px, transparent 1.9px) 0 0 / 12px 12px,
+    color-mix(in srgb, var(--accent) 7%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.desk-landing-pin { position: absolute; top: -5px; right: -5px; color: var(--accent); opacity: 0; }
+.desk-landing[data-pin] .desk-landing-pin { opacity: 0.75; }
+.desk[data-arranging] .desk-landing[data-on],
+.desk-landing[data-afterglow] { opacity: 1; }
+.desk[data-resizing] .desk-landing { z-index: 41; }
+/* taken out, its footprint's wells light up once and fade */
+.desk-flash {
+  background: radial-gradient(circle at 2px 2px, color-mix(in srgb, var(--accent) 60%, transparent) 1.5px, transparent 2px) 0 0 / 12px 12px;
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 50%, transparent);
+}
+@keyframes desk-flash {
+  0%, 100% { opacity: 0; }
+  15%, 55% { opacity: 1; }
+}
+.desk-flash[data-flash] { animation: desk-flash 1.2s ease-out; }
+
+/* pinned: a ring of round dots, like the lattice's own, draws in round the
+   slot just past the card's edge and fades; unpinned, a fainter one lets go;
+   tugged while pinned, it shows the slot the widget is held to. the widget
+   itself never moves */
+/* how far past the card's edge the ring sits (animated, so registered) */
+@property --held-out { syntax: "<length>"; inherits: true; initial-value: 7px; }
+.desk-held {
+  --x: 0;
+  --y: 0;
+  --w: 1;
+  --h: 1;
+  --held-out: 7px;
+  position: absolute;
+  z-index: 41;
+  left: calc(var(--x) * var(--pitch-x));
+  top: calc(var(--y) * var(--pitch-y));
+  width: calc(var(--w) * var(--pitch-x) - var(--gap));
+  height: calc(var(--h) * var(--pitch-y) - var(--gap));
+  color: var(--accent);
+  opacity: 0;
+  pointer-events: none;
+}
+.desk-held > svg {
+  position: absolute;
+  inset: calc(-1 * var(--held-out));
+  width: calc(100% + 2 * var(--held-out));
+  height: calc(100% + 2 * var(--held-out));
+  overflow: visible;
+}
+.desk-held rect {
+  rx: calc(var(--radius) + var(--held-out));
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.6px;
+  stroke-linecap: round;
+  stroke-dasharray: 0 8px;
+}
+.desk-held[data-held="pin"] { animation: held-in 900ms var(--ease-out); }
+.desk-held[data-held="tug"] { animation: held-in 700ms ease-out; }
+.desk-held[data-held="unpin"] {
+  color: color-mix(in srgb, var(--text-faint) 85%, transparent);
+  animation: held-out 520ms ease-out;
+}
+@keyframes held-in {
+  0% { opacity: 0; --held-out: 13px; }
+  25% { opacity: 1; --held-out: 7px; }
+  60% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes held-out {
+  0% { opacity: 1; --held-out: 7px; }
+  100% { opacity: 0; --held-out: 13px; }
+}
+
+/* the resize handle's size name, at the bottom of the footprint it snaps to */
+.desk-chip {
+  --x: 0;
+  --y: 0;
+  --w: 1;
+  --h: 1;
+  position: absolute;
+  z-index: 45;
+  left: calc(var(--x) * var(--pitch-x));
+  top: calc((var(--y) + var(--h)) * var(--pitch-y) - var(--gap) - 14px);
+  width: calc(var(--w) * var(--pitch-x) - var(--gap));
+  display: flex;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+}
+.desk-chip::after {
+  content: attr(data-label);
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.desk-chip[data-on] { opacity: 1; }
+
+/* ── moving ────────────────────────────────────────────────────────────── */
+
+/* springing into place after a drop, it stays above the neighbours it passes */
+.wf[data-settling] { z-index: 35; }
+.wf[data-moving] { will-change: translate, scale; }
+/* a touch press on the body charges before it lifts */
+.wf[data-charging] { scale: 1.012; transition: scale 400ms var(--ease-out); }
+/* on its way into the drawer (the springs carry it there) */
+.wf[data-leaving] { z-index: 40; pointer-events: none; }
+
+/* ── the grip menu (components/desk/grip-menu.tsx) ─────────────────────── */
+
+.grip-menu {
+  position: absolute;
+  z-index: 55;
+  width: max-content;
+  min-width: 13rem;
+  max-width: min(20rem, calc(100vw - 16px));
+  padding: 0.45rem;
+  border-radius: 1.1rem;
+  background: linear-gradient(var(--surface-strong) 0 0), var(--bg);
+  box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-soft);
+  color: var(--text);
+}
+.grip-menu .menu-item:disabled { cursor: default; opacity: 0.4; }
+.grip-menu-hint {
+  margin-left: auto;
+  padding-left: 0.8rem;
+  color: var(--text-faint);
+  font-size: 0.72rem;
+}
+.grip-menu-mark { display: inline-grid; width: 12px; place-items: center; }
+.grip-menu-earlier { rotate: 90deg; }
+.grip-menu-later { rotate: -90deg; }
+.grip-menu-tack { display: inline-grid; width: 12px; place-items: center; color: var(--accent); }
+.grip-menu-sizes {
+  display: flex;
+  gap: 0.35rem;
+  padding: 0.2rem 0.2rem 0.45rem;
+}
+.grip-chip {
+  display: flex;
+  min-width: 4.4rem;
+  min-height: 44px;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  padding: 0.55rem 0.5rem 0.45rem;
+  border-radius: 0.8rem;
+  color: var(--text-dim);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+.grip-chip-shape { color: var(--dot-2, var(--text-faint)); }
+.grip-chip:hover,
+.grip-chip:focus-visible {
+  outline: none;
+  background: var(--surface-soft);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+.grip-chip[aria-checked="true"] { color: var(--text); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+/* the keys' place, apart from where the pointer rests (a checked chip too) */
+.grip-chip:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
+.grip-chip[aria-checked="true"] .grip-chip-shape { color: var(--accent); }
+
+
+/* ── nothing out: the lattice at a third, and a sleeping cat ──────────── */
+
+.desk-empty {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding-bottom: 48px;
+  text-align: center;
+}
+.desk-empty-cat { margin-bottom: 10px; color: var(--dot-3); }
+.desk-empty-title { margin: 0; color: var(--text); font-size: 1.05rem; font-weight: 650; }
+.desk-empty-copy { max-width: 30ch; margin: 0; color: var(--text-dim); font-size: 0.88rem; line-height: 1.5; }
+.desk-empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 12px; }
+.desk-empty-actions .key { min-height: 44px; padding: 0 18px; }
+.key.desk-go { border-color: transparent; background: var(--accent); color: var(--accent-ink); }
+
+/* ── drawer previews and pull peeks: the shared bases ──────────────────── */
+
+/* a tile's picture: static dot art, never a canvas or a live control. Each
+   widget's own sheet draws its preview inside this box */
+.widget-preview {
+  display: grid;
+  width: 190px;
+  height: 104px;
+  place-content: center;
+  gap: 8px;
+  color: var(--text-faint);
+}
+.widget-preview .preview-line { display: block; width: 120px; height: 4px; border-radius: 2px; background: radial-gradient(circle, currentColor 1.2px, transparent 1.6px) 0 50% / 5px 4px repeat-x; }
+.widget-preview .preview-line.is-short { width: 64px; }
+.widget-preview .preview-key { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; background: var(--accent); color: var(--accent-ink); }
+/* dials in dots (the radio's and the timer's) */
+.preview-rails { display: flex; gap: 10px; }
+.preview-rails > i { width: 44px; height: 2px; background: var(--line-strong); }
+.preview-rails > i::after { content: ""; display: block; width: 7px; height: 7px; margin: -2.5px 0 0 14px; border-radius: 50%; background: var(--accent); }
+
+/* a little sign on the pull while a widget is in the drawer */
+.peek { display: inline-flex; align-items: flex-end; gap: 2px; height: 10px; }
+.peek > i { width: 3px; height: 3px; border-radius: 50%; background: var(--accent); }
+@media (prefers-reduced-motion: reduce) {
+  .peek > i { animation: none !important; }
+}
+html.low-power .peek > i { animation: none; }
+
+/* ── the drawer pull (components/desk/drawer-pull.tsx) ────────────────── */
+
+/* whatever comes into view (keyboard focus, a widget taken out) stops clear
+   of the pull, which is fixed over the page's last 60px */
+html { scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+
+.drawer-pull {
+  position: fixed;
+  z-index: 65;
+  left: 50%;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 14px;
+  translate: -50% 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-strong) 72%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--line-color) 55%, transparent);
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 160ms ease, background-color 160ms ease;
+}
+/* a 44px target around the 36px pill */
+.drawer-pull::before { content: ""; position: absolute; inset: -4px -2px; border-radius: inherit; }
+.drawer-pull:hover { background: var(--surface-strong); color: var(--text-dim); }
+.drawer-pull:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.drawer-pull > span { transition: opacity 120ms ease; }
+.drawer-pull-peeks { display: flex; align-items: center; gap: 6px; order: 1; }
+.drawer-pull-peeks:empty { display: none; }
+/* at most three signs of life */
+.drawer-pull-peeks > :nth-child(n + 4) { display: none; }
+.drawer-pull-dots { display: grid; order: 2; }
+/* only the words are in capitals: the peeks' sentences, read as its name, aren't */
+.drawer-pull-label { order: 3; }
+.drawer-pull :is(.drawer-pull-label, .drawer-pull-strip) { letter-spacing: 0.12em; text-transform: uppercase; }
+/* after the first open the word goes quiet, and comes back on hover and focus */
+.drawer-pull:not([data-labelled]):not(:hover):not(:focus-visible) .drawer-pull-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+/* during a drag it grows into the strip that puts things away */
+.drawer-pull-strip {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 280px;
+  height: 48px;
+  border-radius: 999px;
+  background: linear-gradient(var(--surface-strong) 0 0), var(--bg);
+  box-shadow: 0 0 0 1px var(--line-strong);
+  color: var(--text-dim);
+  opacity: 0;
+  pointer-events: none;
+  scale: 0.6;
+  translate: -50% 0;
+  transition: opacity 160ms ease, scale var(--spring-snappy-ms) var(--spring-snappy), background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+.drawer-pull[data-drag] > span:not(.drawer-pull-strip) { opacity: 0; }
+.drawer-pull[data-drag] .drawer-pull-strip { opacity: 1; scale: 1; }
+.drawer-pull[data-over] .drawer-pull-strip {
+  background: linear-gradient(color-mix(in srgb, var(--accent) 16%, transparent) 0 0), linear-gradient(var(--surface-strong) 0 0), var(--bg);
+  box-shadow: 0 0 0 2px var(--accent);
+  color: var(--text);
+  scale: 1.04;
+}
+
+/* ── the drawer (components/desk/drawer.tsx) ──────────────────────────── */
+
+/* A bottom sheet over the live board: opaque, a static shadow and the ring,
+   no blur. It slides up on the spring; while something is carried it folds
+   down to its top strip, which is where you let go to keep it in. */
+.drawer {
+  --drawer-strip: 48px;
+  position: fixed;
+  z-index: 70;
+  left: 50%;
+  bottom: 0;
+  width: fit-content;
+  min-width: min(520px, calc(100vw - 32px));
+  max-width: min(var(--board-w, 1280px), calc(100vw - 32px));
+  border-radius: 28px 28px 0 0;
+  background: linear-gradient(var(--surface-strong) 0 0), var(--bg);
+  box-shadow: 0 -24px 60px -20px rgb(30 40 35 / 0.22), 0 0 0 1px color-mix(in srgb, var(--line-color) 55%, transparent);
+  color: var(--text);
+  translate: -50% 100%;
+  visibility: hidden;
+  transition: translate var(--spring-snappy-ms) var(--spring-snappy), visibility 0s linear var(--spring-snappy-ms);
+}
+.dark .drawer { box-shadow: 0 -24px 60px -20px rgb(0 0 0 / 0.5), 0 0 0 1px color-mix(in srgb, var(--line-color) 80%, transparent); }
+/* the spring overshoots, so the sheet runs on under the window's edge */
+.drawer::after { content: ""; position: absolute; top: 100%; left: 0; right: 0; height: 64px; background: inherit; }
+.drawer[data-open] {
+  translate: -50% 0;
+  visibility: visible;
+  transition: translate var(--spring-snappy-ms) var(--spring-snappy), visibility 0s;
+}
+.drawer[data-open]:is([data-carrying], [data-drag]) { translate: -50% calc(100% - var(--drawer-strip)); }
+/* on a phone it covers the board, edge to edge */
+@media (max-width: 739px) {
+  .drawer { min-width: calc(100vw - 16px); max-width: calc(100vw - 16px); }
+}
+.drawer-strip {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  height: var(--drawer-strip);
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 0;
+  border-radius: 28px 28px 0 0;
+  background: linear-gradient(var(--surface-strong) 0 0), var(--bg);
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+.drawer:is([data-carrying], [data-drag]) .drawer-strip { opacity: 1; }
+.drawer-strip-keep,
+.drawer[data-carrying] .drawer-strip-away { display: none; }
+.drawer[data-carrying] .drawer-strip-keep { display: inline; }
+.drawer[data-over] .drawer-strip {
+  background: linear-gradient(color-mix(in srgb, var(--accent) 14%, transparent) 0 0), linear-gradient(var(--surface-strong) 0 0), var(--bg);
+  box-shadow: inset 0 0 0 2px var(--accent);
+  color: var(--text);
+}
+.drawer-sheet { padding: 22px 24px calc(18px + env(safe-area-inset-bottom)); }
+.drawer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
+.drawer-head h2 { margin: 0; font-size: 1rem; font-weight: 650; }
+.drawer-head p { margin: 4px 0 0; color: var(--text-dim); font-size: 0.82rem; line-height: 1.45; }
+.drawer-done { flex: none; min-height: 36px; padding: 0 16px; }
+
+/* one row of tiles, scrolling sideways when there are more than fit */
+.drawer-tiles {
+  display: flex;
+  gap: 12px;
+  margin: 16px -24px 0;
+  padding: 4px 24px 12px;
+  overflow-x: auto;
+  list-style: none;
+  scroll-padding: 0 24px;
+  scroll-snap-type: x mandatory;
+}
+/* the chips sit along one line whatever the blurb above them wraps to */
+.drawer-item { display: grid; flex: none; grid-template-rows: 1fr auto; gap: 8px; scroll-snap-align: start; }
+.tile {
+  display: grid;
+  align-content: start;
+  width: 206px;
+  gap: 3px;
+  padding: 8px 8px 10px;
+  border-radius: 20px;
+  color: inherit;
+  text-align: left;
+  cursor: grab;
+  /* the row scrolls sideways; a still press lifts */
+  touch-action: pan-x;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  transition: background-color 160ms ease, scale 160ms var(--ease-out);
+}
+.tile:hover { background: color-mix(in srgb, var(--text) 4%, transparent); }
+.tile:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.tile[data-charging] { scale: 1.02; transition: scale 250ms var(--ease-out); }
+.tile-preview { display: grid; width: 190px; height: 104px; place-items: center; overflow: hidden; border-radius: 16px; }
+.tile-preview[data-surface="card"] {
+  background: linear-gradient(color-mix(in srgb, var(--surface-strong) 80%, transparent) 0 0), var(--bg);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--line-color) 70%, transparent);
+}
+.tile-preview[data-surface="bare"] { outline: 1px dotted var(--line-color); outline-offset: -1px; }
+.tile-name { padding: 6px 4px 0; font-size: 0.86rem; font-weight: 650; }
+.tile-blurb { padding: 0 4px; color: var(--text-dim); font-size: 0.76rem; line-height: 1.4; }
+.tile-back { padding: 0 4px; color: var(--accent-deep); font-size: 0.72rem; }
+.tile-sizes { display: flex; min-height: 28px; flex-wrap: wrap; gap: 4px; padding: 0 8px; }
+.tile-chip {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px var(--line-color);
+  color: var(--text-dim);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+.tile-chip:hover { color: var(--text); }
+/* the footprint it'll take on the desk, in dots */
+.tile-chip-shape { display: inline-grid; place-items: center; color: var(--dot-2, var(--text-faint)); }
+.tile-chip[aria-checked="true"] .tile-chip-shape { color: var(--accent); }
+.tile-chip:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.tile-chip[aria-checked="true"] {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--text);
+}
+@media (pointer: coarse) {
+  .tile-chip { min-height: 44px; }
+  .tile-sizes { min-height: 44px; }
+}
+.drawer-empty { margin: 26px 0 16px; color: var(--text-dim); font-size: 0.9rem; text-align: center; }
+.drawer-foot { display: grid; gap: 8px; margin-top: 4px; padding-top: 12px; border-top: 1px dashed var(--line-color); }
+.drawer-actions { display: flex; flex-wrap: wrap; gap: 4px 20px; }
+.drawer-link {
+  min-height: 32px;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  text-decoration: underline dotted;
+  text-underline-offset: 4px;
+  cursor: pointer;
+}
+.drawer-link:hover:not(:disabled) { color: var(--text); }
+.drawer-link:focus-visible { border-radius: 6px; outline: 2px solid var(--focus); outline-offset: 2px; }
+.drawer-link:disabled { cursor: default; opacity: 0.4; }
+/* why it can't be done yet, quietly beside it */
+.drawer-tidy { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; }
+.drawer-link-note { color: var(--text-faint); font-size: 0.72rem; }
+.drawer-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.drawer-confirm p { margin: 0 8px 0 0; font-size: 0.82rem; }
+.drawer-confirm .key { min-height: 34px; padding: 0 14px; }
+.drawer-note { margin: 0; color: var(--text-dim); font-size: 0.78rem; line-height: 1.45; }
+
+/* what's in hand on the way out of the drawer: the tile's picture at the
+   widget's size. Only its translate and scale move */
+.drawer-ghost {
+  position: fixed;
+  z-index: 75;
+  top: 0;
+  left: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 22px;
+  pointer-events: none;
+  transform-origin: 0 0;
+  transition: scale 160ms var(--ease-out);
+}
+.drawer-ghost[data-surface="card"] {
+  background: linear-gradient(var(--surface-strong) 0 0), var(--bg);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--line-color) 55%, transparent), 0 34px 60px -18px rgb(30 40 35 / 0.28), 0 14px 26px -14px rgb(30 40 35 / 0.2);
+}
+.drawer-ghost[data-surface="bare"] {
+  background: linear-gradient(color-mix(in srgb, var(--surface-strong) 38%, transparent) 0 0), var(--bg);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--line-color) 55%, transparent);
+}
+.dark .drawer-ghost[data-surface="card"] {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--line-color) 80%, transparent), 0 34px 64px -16px rgb(0 0 0 / 0.55), 0 14px 28px -12px rgb(0 0 0 / 0.42);
+}
+
+/* ── notes above the pull: toasts and the welcome (components/desk/toasts.tsx) */
+
+.desk-notes {
+  position: fixed;
+  z-index: 72;
+  left: 50%;
+  bottom: calc(max(12px, env(safe-area-inset-bottom)) + 58px);
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  translate: -50% 0;
+  pointer-events: none;
+  transition: translate var(--spring-snappy-ms) var(--spring-snappy);
+}
+/* over the open drawer, rather than on it: it rises with the sheet, on the same spring */
+.desk-notes[data-drawer] { translate: -50% calc(max(12px, env(safe-area-inset-bottom)) + 46px - var(--drawer-h, 320px)); }
+/* on the fitted desk the rows reach the band above the pull, so notes sit
+   beside the pull instead, clear of the bottom row's controls */
+@media (min-width: 1280px) {
+  .desk-notes {
+    left: calc(50% + 74px);
+    bottom: max(12px, env(safe-area-inset-bottom));
+    justify-items: start;
+    max-width: calc(50vw - 98px);
+    translate: 0 0;
+  }
+  .desk-notes[data-drawer] { translate: 0 calc(max(12px, env(safe-area-inset-bottom)) - 12px - var(--drawer-h, 320px)); }
+}
+/* the welcome's how-to, for a hand or a pointer */
+.welcome-touch { display: none; }
+@media (hover: none) {
+  .welcome-pointer { display: none; }
+  .welcome-touch { display: inline; }
+}
+.desk-toast-slot:empty { display: none; }
+.desk-toast {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 6px 6px 18px;
+  border-radius: 999px;
+  background: linear-gradient(var(--surface-strong) 0 0), var(--bg);
+  box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-soft);
+  color: var(--text);
+  font-size: 0.84rem;
+  pointer-events: auto;
+  animation: toast-in 260ms var(--ease-out);
+}
+.desk-toast.is-welcome { max-width: 34rem; padding: 8px 8px 8px 18px; border-radius: 22px; line-height: 1.45; }
+.desk-toast-undo {
+  flex: none;
+  min-height: 32px;
+  padding: 0 14px;
+  border-radius: 999px;
+  color: var(--accent-deep);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.desk-toast-undo:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.desk-toast-undo:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+@keyframes toast-in {
+  from { opacity: 0; translate: 0 8px; }
+}
+
+
+/* ── reduced motion and low power ──────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .desk-grid, .wf-contact { transition: none; }
+  /* no flash: the dots just stay lit while they're news */
+  .desk-flash[data-flash] { animation: none; opacity: 1; }
+  .wf[data-burst] .wf-pin-burst > i,
+  .wf[data-pulse] .wf-pin-pulse { animation: none; }
+  /* the ring of dots only fades, where it is */
+  .desk-held[data-held] { animation-name: held-fade; }
+  /* the pinned glyph swaps with a short fade, nothing else moves */
+  .wf-pin-glyphs > * { transition: opacity 120ms ease; }
+  .drawer, .drawer[data-open] { translate: -50% 0; transition: none; }
+  /* nothing inside may transition the visibility it inherits either: the
+     page-wide 0.01ms rule would leave the tiles hidden for a frame as the
+     sheet opens, and focus can't land on them */
+  .drawer * { transition-property: none !important; }
+  .drawer[data-open] { animation: drawer-fade 120ms ease-out; }
+  .drawer[data-open]:is([data-carrying], [data-drag]) { translate: -50% calc(100% - var(--drawer-strip)); }
+  .desk-toast { animation: none; }
+  .wf[data-charging] { scale: none; }
+  /* nobody slides aside to uncover the footprint, so it lies over whoever is
+     there now (as resizing does) */
+  .desk[data-arranging] .desk-landing { z-index: 41; }
+}
+html.low-power .desk-grid { transition: none; }
+/* low power: a plain ring instead of the cast shadow (one layer), no burst */
+html.low-power .wf-cast { display: none; }
+html.low-power .wf[data-lifted] .wf-contact { opacity: 0; }
+html.low-power .wf[data-lifted] { box-shadow: 0 0 0 1.5px var(--line-strong); }
+html.low-power .wf[data-burst] .wf-pin-burst > i { animation: none; }
+html.low-power .drawer-ghost[data-surface] { box-shadow: 0 0 0 1px var(--line-strong); }
+html.low-power .drawer { transition: translate 160ms var(--ease-out), visibility 0s linear 160ms; }
+html.low-power .drawer[data-open] { transition: translate 160ms var(--ease-out), visibility 0s; }
+html.low-power .desk-notes { transition: translate 160ms var(--ease-out); }
+@keyframes held-fade {
+  0%, 100% { opacity: 0; }
+  20%, 60% { opacity: 1; }
+}
+@keyframes drawer-fade {
+  from { opacity: 0; }
+}

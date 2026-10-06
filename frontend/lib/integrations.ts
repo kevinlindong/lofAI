@@ -42,7 +42,8 @@ export const SERVICES: Service[] = [
 
 export interface RemoteItem { id: string; title: string; done: boolean; kind: "task" | "event" | "message"; url?: string; due?: string; canComplete?: boolean }
 export interface TaskSource { provider: ServiceId; source: string; id: string; url?: string; sync: boolean }
-export interface Task { id: string; text: string; done: boolean; source?: TaskSource }
+// doneAt: when it was checked off (ms). additive; older builds ignore it
+export interface Task { id: string; text: string; done: boolean; source?: TaskSource; doneAt?: number }
 export interface Connection { id: ServiceId; connected: boolean; configured?: boolean; oauthConfigured?: boolean }
 export interface Source { id: string; name: string }
 

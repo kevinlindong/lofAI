@@ -45,8 +45,9 @@ const EMBLEMS: Record<string, readonly string[]> = {
 }
 
 // DotPattern's grid with each dot tagged by frame. Drawn once: the panel
-// re-renders on every step of a dial drag, and these never change.
-const Emblem = memo(function Emblem({ id }: { id: string }) {
+// re-renders on every step of a dial drag, and these never change. The radio's
+// mini bar shows the one on air.
+export const StationEmblem = memo(function StationEmblem({ id }: { id: string }) {
   const rows = EMBLEMS[id] ?? GLYPHS.music
   const grid = { gridTemplateColumns: `repeat(${rows[0].length}, 2px)`, gridTemplateRows: `repeat(${rows.length}, 2px)` }
   return (
@@ -142,7 +143,7 @@ export function StationPicker({ station, onSelect }: StationPickerProps) {
           onClick={() => onSelect(preset.id)}
           onKeyDown={(event) => onKeyDown(event, i)}
         >
-          <Emblem id={preset.id} />
+          <StationEmblem id={preset.id} />
           <span className="station-name">{preset.label.toLowerCase()}</span>
         </button>
       ))}

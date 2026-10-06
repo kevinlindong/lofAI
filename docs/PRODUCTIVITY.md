@@ -5,33 +5,158 @@ a companion, and enough structure to make the next small thing easier.
 The product direction is calm, playful, quirky, and alive. Character should
 come from how tools respond as well as how they look.
 
-The shared timer sliders, compact cat widget, dot-matrix new-take die,
-station dial, and service connections are implemented. See [connection setup](INTEGRATIONS.md)
-for the exact capabilities and account requirements. The richer workflows and
-additional tools below remain product direction: for example, imported calendar
-events are available today, while suggested focus windows are still proposed.
+The widget desk and its drawer, shared timer sliders, the cat, the drawer's
+four extra widgets (On the desk, the pocket notebook, the clock and Today),
+the dot-matrix new-take die, station dial, and service connections are
+implemented. See [connection setup](INTEGRATIONS.md) for the exact
+capabilities and account requirements. The richer workflows and additional
+tools below remain product direction: for example, imported calendar events
+are available today, while suggested focus windows are still proposed.
 
 ## What is here today
 
 | Tool | Current behavior | Opportunity |
 | --- | --- | --- |
-| Tasks | Browser-local list; add, complete, undo, remove, clear completed; import preview, source links, optional remote completion, portable transfers; task actions animate the cat | Edit tasks, pick a task for a session, background reconciliation |
-| Pomodoro | Manual focus/rest cycles, pause/reset, end sound, wall-clock deadline; focus 1–60 minutes and rest 1–30 | Remember preferences, associate sessions with tasks, acknowledge finished sessions |
-| Radio | Eight-station dial (four tuned backend stations, four mixed recipes), custom sound recipe or prompt, variation, volume, keyboard shortcuts | Save personal sound-and-focus rituals |
-| Companion | Compact widget; cat follows the cursor, responds to petting/tasks/music/focus, and dozes | React to session milestones, welcome people back gently |
-| Atmosphere | Six saved themes, dot artwork, flowing visualizer, ambient marks, reduced-motion and low-power modes | Keep new tools consistent with this existing identity |
+| Desk | Every tool is a widget on a grid that fits the window, in five standard sizes (S, M, L, W, XL); out of the box it's the room as it was before widgets (the Radio on the left; the cat, Tasks and the timer on the right). Drag by any quiet spot (long-press on touch), arrow keys on its handle, sizes from the corner or the handle's menu; a widget stays exactly where it's set down and the ones it lands on make room, though it never shoves a bigger one out of view; pins only ever come from the tack, P or the menu; undo/redo; 6, 4 or 2 columns. See [the desk](#the-desk) | Ritual presets that save a whole arrangement |
+| Tasks | Browser-local list; add, complete, undo, remove (with Undo), clear completed; put one task on the desk (the bookmark key); import preview, source links, optional remote completion, portable transfers; task actions animate the cat; keeps its list while put away; follows another tab's changes | Edit tasks, background reconciliation |
+| Pomodoro | Manual focus/rest cycles, pause/reset, end sound, wall-clock deadline; focus 1–60 minutes and rest 1–30, remembered; "FOCUS · {task}" while a task is on the desk; a block that runs out lands softly ("25 minutes with this. nicely done." with [done], [another little bit], [take a breather]), is said aloud once, and never completes a task by itself; finished blocks are logged locally with their task; keeps running while resized or put away (a dot on the pull says so, a check once one has landed) | Open-ended focus, suggested focus windows |
+| On the desk | The one task this session is for, with its source link; pick or write one, start a block from it, [done] (Undo in the toast or ⌘Z), swap, back to the list. It carries the landing note while it's out. Comes out beside the timer the first time a task is put on the desk. In the drawer by default | A break companion that knows what you were on |
+| Pocket notebook | One persistent note on ruled paper that grows into free rows, then scrolls; saves as you pause; ⌘/Ctrl+Enter (or the key in the margin) turns the caret's line into a task, and Undo puts it back. Kept on the page, not moved, when Tasks can't save. In the drawer by default | Several pages, a session's notes in Today |
+| Clock | Dot digits that change dot by dot, "time" or "with the day" (the date and the day's hours as dots); 12 or 24 hours; "nice to see you" for the first minute after a long time away, never how long. In the drawer by default | The next calendar commitment |
+| Today | A postcard of the day so far: focus time and things finished, one bead per block, no streaks or scores; "Save a copy" downloads it as Markdown. In the drawer by default | A week's shelf, an end-of-day moment |
+| Radio | Eight-station dial (four tuned backend stations, four mixed recipes), custom sound recipe or prompt, variation, volume, keyboard shortcuts that work even with the radio in the drawer; the full radio (ring on top, sound panel below), a wide card (ring beside the panel), the ring, or a mini player | Save personal sound-and-focus rituals |
+| Companion | A cat on its own card in three sizes, sitting on the card's floor with room around it; perks an ear when it's picked up, is pleased when a widget comes to rest beside it, follows the cursor, responds to petting/tasks/music/focus, purrs while carried, naps in the drawer (its ears peek over the pull), and dozes | React to session milestones |
+| Atmosphere | Six saved themes, dot artwork, flowing visualizer, ambient marks, reduced-motion and low-power modes (arranging the desk damps the canvases the same way) | Keep new tools consistent with this existing identity |
 
 Tasks use localStorage's `todos` key and retain existing lists on upgrade.
 Imported items also carry provider/source/item IDs, a source URL when available,
 and an explicit completion-sync choice. Credentials live on the local backend.
 Refresh and re-import apply provider changes; this is not automatic background
-or cross-device task sync. Timer durations and session state reset on reload.
-The timer and task list share the cat but do not share an active task yet.
+or cross-device task sync. Two open tabs share the list: the last change wins,
+and each tab takes the other's rather than writing over it. A running session
+and its phase reset on reload. The task on the desk is what a focus block is
+for; finished blocks record it.
 
-Implementation references: [tasks](../frontend/components/todo-list.tsx),
-[timer](../frontend/components/pomodoro-timer.tsx),
+Everything is kept in this browser's localStorage:
+
+| Key | Holds |
+| --- | --- |
+| `todos` | The task list (never overwritten while unreadable) |
+| `lofai.desk-task` | The task on the desk: `{v, taskId, since}` |
+| `lofai.timer` | Work and rest minutes |
+| `lofai.sessions` | Finished focus blocks for the last 14 days: start, end, minutes, task |
+| `lofai.board` | The desk (v3): every widget and whether it's out, a reading order, each widget's size, and for each layout that has been arranged (desk, compact, phone) where each widget sits and which ones are pinned, plus a few one-time hints. A put-away widget keeps its size and its spot, which is where it comes back to |
+| `lofai.board.broken` | An unreadable arrangement, kept once, as it was |
+| `lofai.board.future` | An arrangement saved by a newer lofAI, kept apart from unreadable ones so neither costs the other |
+| `lofai.board.v1`, `lofai.board.v2` | An older arrangement, copied once when that desk is first changed after the update. Older layouts and pins aren't carried over: the usual desk comes back, with who's out and their sizes kept |
+| `lofai.notebook` | The pocket notebook's page: `{v, text, updatedAt}` |
+| `lofai.notebook.broken` | An unreadable or newer page, kept once |
+| `lofai.clock` | The 12/24-hour choice, once made |
+| `lofai.today` | Things finished today that the list has since cleared, so Today still counts them |
+| `lofai.seen` | When the desk was last open, for the welcome back |
+| `lofai.theme` | The color theme |
+
+Implementation references: [the desk](../frontend/components/desk/desk.tsx),
+[its drawer](../frontend/components/desk/drawer.tsx) and
+[widget registry](../frontend/components/desk/registry.ts), the
+[widgets](../frontend/components/widgets/), the
+[board engine](../frontend/lib/board.ts), [tasks](../frontend/components/tasks-provider.tsx),
+[timer](../frontend/components/focus-provider.tsx),
 [radio state](../frontend/components/radio-provider.tsx), and
 [companion](../frontend/components/pet.tsx).
+
+## The desk
+
+The page is a desk of widgets on a grid: 6 columns at 1280px and wider, 4
+from 740px, 2 below. Columns are 150 to 224px wide (down to 136 on the
+smallest phones). On a desk or a tablet the
+rows shrink to fit the window (never shorter than 128px, never taller than a
+column is wide), so the usual four rows fit without scrolling; on a phone the
+slots are square. Every widget comes in some of five standard sizes, the same
+for all of them: S (1×1), M (2×1), L (2×2), W (4×2, "wide") and XL (4×4,
+"full"). On a phone, W shows its L content and XL is a tall 2×4 of the same
+content. Boxes are fixed and lists scroll inside.
+
+Out of the box the desk is the room as it was before it had widgets: the full
+Radio on the left (the ring and play key on top, the sound panel below), and
+on the right the cat, Tasks and the focus timer, top to bottom. On a narrower
+window the Radio is the tall card on the left with the cat, Tasks and the
+timer down the right; on a phone they stack. Nothing is pinned, and the grid only shows while something is
+being arranged.
+
+- **The layout.** Each widget has its own spot in each layout (desk, compact,
+  phone). It stays exactly where it's set down: beside the others, or on its
+  own with open space around it. Setting a widget down never pins it. Arranging
+  one layout never changes another, and a layout that hasn't been touched yet
+  is the usual desk.
+- **Moving.** Press any quiet spot of a widget and drag (a long press on
+  touch), or use its grip at the top edge: arrow keys pick it up and move it
+  one space at a time, Home and End go to the ends of its row, Enter sets it
+  down, Escape puts it back, Delete puts it away. Where it lands follows the
+  pointer: the part of the widget being held lands on the cell under it, so
+  letting go over a neighbour's lower half lands on that neighbour. The
+  widgets it lands on make room: one of the same size trades places with it,
+  others move over into the room it left, and failing that they're pushed
+  down their columns, taking the ones under them along, as long as nobody is
+  pushed past the rows the desk reaches. Let go over a bigger widget that
+  can't make room that way (anything over the Radio on the usual, full desk),
+  the two trade sides: the bigger one steps over and the dragged one is set
+  down on its side, in the row it was let go, unless its own side is nearer.
+  Only when nothing takes it does it land on the nearest spot that does (home
+  at most); an arrow key steps on past a widget that won't budge or says
+  "{Name} is in the way." Carrying it back to where it started in the same
+  drag puts everything back.
+  Move earlier / Move later in the grip's menu trade places with the neighbour
+  in reading order.
+- **Pins.** Only on purpose: the small tack in a circle inside a card's
+  top-right corner (shown on hover or focus while it's free; filled with the
+  accent and always shown once pinned), P on a focused grip (or while it's
+  lifted, to pin it where it's set down), or Pin in place in the grip's menu.
+  Pinning or unpinning never moves the widget: the tack taps in and a ring
+  of the lattice's dots draws in round its slot and fades, or the tack pops
+  out and a fainter ring lets go. Nothing is written on the desk; the live
+  region says it. A pinned widget doesn't move when others make room and
+  can't be dragged; tugged, or nudged with the arrow keys on its grip, it
+  gives a little and springs back into the ring round its slot, and says how
+  to unpin it. Dropped onto a pinned widget, another lands at the nearest
+  spot clear of it; the arrow keys stop at it with "{Name} can't go past a
+  pinned widget." Pins are kept per layout.
+- **Sizes.** From the resize corner or the grip's menu (+ and − on the grip).
+  It grows in place, keeping its top-left, and the widgets it grows over are
+  pushed down their columns; only a pin in the way moves it instead. A layout
+  nobody has arranged yet closes up the gaps a smaller or put-away widget
+  leaves.
+- **Motion.** Physical springs (`lib/spring.ts`, drawn by
+  `components/desk/motion.ts`) that can change course mid-flight without a
+  jump: a widget swells a little as it's picked up and leans with the hand,
+  the others glide out of the way nearest first, and a drop keeps the hand's
+  speed and lands with a small squash. A pin taps in; unpinned, it pops out.
+  Reduced motion turns travel into short fades; low power keeps the moves but
+  drops the bounce, the lean and the cast shadow. `?deskperf` in the URL
+  records each frame's JS time at `window.__lofaiDeskFrames`.
+- **The drawer.** The pull at the bottom centre (or `D`, or the Menu) opens a
+  sheet of what isn't out, each tile a static picture of the widget with a
+  chip for each of its sizes (the footprint's silhouette), the size it last
+  had already chosen. Click a tile to take it out: it rises back onto the spot
+  it had in this layout if that's still free (the tile says "goes back to its
+  spot"), otherwise into the first free spot in view, otherwise just below
+  everything, and the page scrolls to it. Or carry the tile to exactly where
+  it should go; the widgets under it make room. Put one away by dropping it on
+  the pull, from its menu, or with Delete; a toast offers Undo. Widgets in the
+  drawer keep working: the timer keeps running, the radio keeps playing, and a
+  few show a sign of life on the pull.
+- **Undo.** ⌘Z / Ctrl+Z undoes the last arrangement step (⌘⇧Z or Ctrl+Y
+  redoes). While a widget's own toast is up ("Nicely done.", "Thought moved to
+  tasks.", "Task removed."), ⌘Z is that toast's Undo.
+- **Tidy up** and **Put the usual back** live in the drawer's footer. Tidy up
+  moves every unpinned widget up as far as it fits, keeping its column, in one
+  step with Undo ("Already tidy." when nothing would move). Put the usual back
+  asks first, then brings back the usual desk in every layout (with Undo). An empty desk
+  is a real choice, with the music still playing.
+- **New widgets** are a module in `frontend/components/widgets/<type>/`
+  exporting a `definition` (sizes, a static `Preview`, an optional `Peek`),
+  listed in [the registry](../frontend/components/desk/registry.ts); they
+  appear in the drawer automatically.
 
 ## The main loop to strengthen
 
@@ -93,17 +218,15 @@ needs a user token with DND access and should be enabled separately.
 
 | Addition | Useful behavior | Small bit of character |
 | --- | --- | --- |
-| On the desk | One selected task tied to the current focus session | A little bookmark settles beside it; the cat looks ready |
-| Pocket notebook | Persistent scratchpad; turn a line into a task | A folded note peeks out from a drawer |
 | Day shelf | A small chosen set of tasks for today; remaining work stays available | Finishing one leaves a quiet checkmark rather than erasing the evidence |
 | Break companion | Optional water, stretch, or look-outside suggestion at break time | The cat stretches too; the prompt can be skipped |
-| Session postcard | A short daily recap of time spent and things finished | A warm “you made room for a few things” moment, without scores or penalties |
+| Session postcard | A short recap at the end of a session or day (Today already shows the day so far) | A warm “you made room for a few things” moment, without scores or penalties |
 | Ritual presets | Save sound, theme, and timer preferences together | Personal names such as “rainy reading” or “tiny admin hour” |
 | Open-ended focus | Count up when a countdown feels constraining | The same gentle controls and optional break invitation |
 
-Build “on the desk” and the notebook first: they make the current tools work
-together. Calendar context and session postcards come next. Shared coworking
-rooms can be explored later, once the single-person routine feels complete.
+On the desk, the notebook and Today now make the current tools work together.
+Calendar context comes next. Shared coworking rooms can be explored later,
+once the single-person routine feels complete.
 
 ## UX rules for new work
 
@@ -126,10 +249,9 @@ rooms can be explored later, once the single-person routine feels complete.
 
 ## Further build path
 
-1. **Connect the local tools.** Extract task state from `TodoList`, migrate
-   existing items without dropping them, add editing and an active task,
-   persist timer preferences, and record actual completed focus sessions.
-   Guard storage writes and explain when a browser cannot save.
+1. **Connect the local tools.** Task and focus state now live in providers,
+   with an active task, remembered timer preferences, a local log of finished
+   blocks, and guarded storage writes. Task editing remains.
 2. **Deepen portability.** The import preview, exports, and source links now
    exist. Add richer notes and field mapping as real usage calls for them.
 3. **Deepen provider workflows.** Connection setup, source selection,

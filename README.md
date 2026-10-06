@@ -30,6 +30,31 @@ See [the streaming design note](docs/MUSIC_STREAMING.md) for the full MRT2 pipel
 
 The interface is served at `/` (and `/1`): the radio, cat, tasks, timer, and color themes.
 
+### The desk
+
+Everything on the page is a widget on an invisible grid. Out of the box it's
+the room as it was before widgets: the full Radio on the left, and on the
+right the cat on its own card, Tasks and the focus timer. Every widget moves:
+drag it by any quiet spot (a long press on touch), or use the arrow keys on
+the grip at its top edge. It stays exactly where you set it down, beside the
+others or on its own, and the widgets it lands on make room. Its resize corner
+and grip menu step through its standard sizes: S, M, L, W ("wide") and XL
+("full"). Pins only come from you: the small tack in a circle at a card's
+top-right corner, P on its grip, or Pin in place in its menu keeps a widget
+where it is while the others move. ⌘Z undoes an arrangement. The grid has 6
+columns on a wide window, 4 on a narrower one and 2 on a phone, and the rows
+fit the window so the usual desk needs no scrolling.
+
+The **drawer** (the pull at the bottom centre, `D`, or the Menu) holds what
+isn't out, and a few more widgets: *On the desk* (the one task this session
+is for), a *pocket notebook*, a dot-matrix *clock*, and *Today*, a postcard
+of the day. Take one out by clicking its tile (it goes back to its spot) or
+carrying it into place; put one away by dropping it on the pull, from its
+menu, or with Delete. **Tidy up** in the drawer's footer moves everything
+that isn't pinned up into the gaps, with Undo. Arrangements are kept per desk width in the
+browser. See the [productivity direction](docs/PRODUCTIVITY.md#the-desk)
+for the details and the storage keys.
+
 The focus timer shares the music player's fine dials: drag Work or Rest,
 move away from the rail for finer adjustments, or use the arrow keys for
 one-minute steps. Double-click to return to 25 minutes of work or 5 minutes
@@ -40,8 +65,7 @@ or messages from Google, Microsoft, Todoist, Notion, Linear, GitHub, Trello,
 Asana, Slack, Discord, and Apple Reminders. Each service has a dot-matrix mark.
 Preview items before importing; enable completion sync explicitly for supported
 task sources. n8n and Zapier accept an explicit task delivery, while Obsidian,
-Apple Calendar, Markdown, JSON, and CSV provide portable transfers. The cat
-lives in a compact widget so the task list has more room.
+Apple Calendar, Markdown, JSON, and CSV provide portable transfers.
 
 See [connection setup](docs/INTEGRATIONS.md) for credentials, Google/Microsoft
 OAuth configuration, native Mac permissions, and each service's capabilities.
@@ -50,7 +74,7 @@ service setup. [Productivity direction](docs/PRODUCTIVITY.md) covers the next
 tools to explore, and [project design guidance](AGENTS.md) preserves the playful
 feel for future changes.
 
-The music lives in one panel under the visualizer:
+The music lives in the Radio widget: at its full size the sound panel sits under the ring and its play key (the wide size puts it beside the ring; smaller sizes keep play, the stations and volume):
 
 - **Stations** sit in one row. A pill slides to the one playing, stretching toward it and landing with a small squash; when the sound is your own, a *your mix* stop appears at the end.
 - A **sentence** describes the sound ("Mellow lo-fi beats, played on jazz guitar, with drums, and nothing extra."). Tap any underlined word to swap it: one mood, one style, up to three instruments (a fourth pick replaces the first), and up to two textures. The options spring in, and a choice fills outward from its dot; the last instrument shakes rather than leave. Edits tune in on their own after a short pause, shown as the edited word's underline filling up, so a few quick picks become one style change. New words arrive a letter at a time. The drums word toggles immediately. **Write it yourself** swaps the sentence for up to 120 characters of your own words, applied with Enter.

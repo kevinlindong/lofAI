@@ -30,6 +30,24 @@ export function setLowPower(next: boolean) {
   for (const listener of Array.from(listeners)) listener()
 }
 
+// Busy: the desk is being arranged (a drag, a resize, a keyboard lift, the open drawer).
+// Canvases drop to their low-power rate and the ink trail pauses for the
+// session, so the hand stays smooth. Only module state and the listeners
+// hear it: never a class on <html>, which the cat and the visualiser watch
+// for theme changes.
+let busy = false
+
+export function renderBusy(): boolean {
+  return busy
+}
+
+export function setRenderBusy(next: boolean) {
+  if (next === busy) return
+  busy = next
+  for (const listener of Array.from(listeners)) listener()
+}
+
+// low power or busy both change the rate: listeners hear either
 export function onLowPowerChange(listener: Listener): () => void {
   listeners.add(listener)
   return () => {

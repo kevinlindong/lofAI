@@ -41,6 +41,9 @@
     --text-faint: #9aa59f;
     --accent: #ea7d50;
     --accent-deep: #bd5635;
+    /* keyboard focus rings: the deep accent clears 3:1 on every surface, in
+       every theme (each theme's own --accent-deep, resolved where it's set) */
+    --focus: var(--accent-deep);
     --accent-soft: #ffd0b8;
     --accent-ink: #2b1a13;
     --accent-2: #3d9f8a;
@@ -328,16 +331,22 @@
 
   html {
     min-width: 320px;
-    background: var(--bg);
+    /* the desk centres on clientWidth; a scrollbar coming and going must not move it */
+    scrollbar-gutter: stable;
+    /* and the gutter it keeps reads as page, not as an empty track */
+    scrollbar-color: color-mix(in srgb, var(--text-faint) 50%, transparent) transparent;
+    /* on the root, so it paints the whole canvas, the scrollbar gutter included */
+    background:
+      radial-gradient(circle at 12% 4%, var(--page-wash), transparent 32rem),
+      linear-gradient(145deg, var(--bg), var(--bg-deep));
+    /* all a kept scrollbar gutter shows: the gradient's colour at the right edge */
+    background-color: color-mix(in srgb, var(--bg-deep) 75%, var(--bg));
     font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
 
   body {
     min-height: 100vh;
     margin: 0;
-    background:
-      radial-gradient(circle at 12% 4%, var(--page-wash), transparent 32rem),
-      linear-gradient(145deg, var(--bg), var(--bg-deep));
     color: var(--text);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
@@ -359,19 +368,19 @@
 }
 
 @layer components {
+  /* the desk sizes itself (app/desk.css); a desk deeper than the window
+     scrolls the document, never an inner box */
   .site-shell {
     position: relative;
     min-height: 100vh;
     min-height: 100dvh;
-    /* Fit the whole experience in one viewport on a laptop: the shell is a
-       flex column and the frame consumes the height that remains after the
-       toolbar. It still scrolls on short/mobile viewports via the media
-       queries below, which relax the fixed height. */
-    display: flex;
-    flex-direction: column;
-    height: 100dvh;
-    overflow: hidden;
-    padding: clamp(0.75rem, 2.2vw, 1.75rem);
+    /* its own formatting context, so the desk's top margin stays inside */
+    display: flow-root;
+    height: auto;
+    overflow: visible;
+    /* a widget carried past the window's edge never widens the page */
+    overflow-x: clip;
+    padding: 0;
     isolation: isolate;
   }
 
@@ -475,124 +484,13 @@
     animation: ascii-drift-c 59s ease-in-out infinite;
   }
 
-  .app-frame {
-    position: relative;
-    z-index: 1;
-    display: flex;
-    flex: 1 1 auto;
-    min-height: 0;
-    flex-direction: column;
-    width: min(100%, 76rem);
-    margin: 0 auto;
-  }
-
+  /* the round menu key, in the page margin beside the desk: 40px down on a
+     wide desk, in a 56px strip over the narrower ones */
   .page-toolbar {
-    display: flex;
-    position: relative;
-    z-index: 5;
-    flex: 0 0 auto;
-    justify-content: flex-end;
-    margin-bottom: 0.6rem;
-  }
-
-  .workspace-grid {
-    display: grid;
-    flex: 1 1 auto;
-    min-height: 0;
-    grid-template-columns: minmax(0, 1.12fr) minmax(21rem, 0.88fr);
-    align-items: stretch;
-    gap: clamp(0.85rem, 1.6vw, 1.25rem);
-  }
-
-  .side-stack {
-    display: flex;
-    min-width: 0;
-    min-height: 0;
-    flex-direction: column;
-    gap: clamp(0.85rem, 1.6vw, 1.25rem);
-  }
-
-  .surface-card {
-    position: relative;
-    overflow: hidden;
-    border: 1px solid var(--line-color);
-    border-radius: clamp(1.25rem, 2.4vw, 2rem);
-    background: var(--surface);
-    box-shadow: var(--shadow);
-    backdrop-filter: blur(24px) saturate(112%);
-    scroll-margin-top: 1rem;
-  }
-
-  .surface-card::before {
     position: absolute;
-    z-index: 0;
-    width: 8rem;
-    height: 8rem;
-    border-radius: 999px;
-    content: "";
-    pointer-events: none;
-    right: -4.5rem;
-    top: -4.5rem;
-    background: color-mix(in srgb, var(--accent) 9%, transparent);
-    filter: blur(10px);
-  }
-
-  .surface-card > * {
-    position: relative;
-    z-index: 1;
-  }
-
-  .music-card {
-    display: flex;
-    min-height: 0;
-    flex-direction: column;
-    padding: clamp(1rem, 2.4vw, 1.75rem);
-  }
-
-  .tasks-card,
-  .timer-card {
-    padding: clamp(0.85rem, 1.8vw, 1.25rem);
-  }
-
-  .tasks-card {
-    display: flex;
-    min-height: 0;
-    flex: 1 1 auto;
-    flex-direction: column;
-  }
-
-  .timer-card {
-    flex: 0 0 auto;
-  }
-
-  .companion-card {
-    flex: 0 0 auto;
-  }
-
-  .card-intro {
-    display: flex;
-    flex: 0 0 auto;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: 1.5rem;
-    margin-bottom: 0.35rem;
-  }
-
-  .card-intro h1 {
-    margin: 0.25rem 0 0;
-    font-size: clamp(1.6rem, 3.2vw, 2.5rem);
-    font-weight: 560;
-    line-height: 1;
-    letter-spacing: -0.045em;
-  }
-
-  .card-note {
-    width: 12rem;
-    margin: 0;
-    color: var(--text-dim);
-    font-size: 0.82rem;
-    line-height: 1.45;
-    text-align: right;
+    z-index: 60;
+    top: 40px;
+    right: 18px;
   }
 
   .eyebrow,
@@ -633,7 +531,6 @@
     letter-spacing: 0.1em;
     text-transform: uppercase;
     box-shadow: 0 5px 16px rgba(21, 35, 29, 0.06);
-    backdrop-filter: blur(12px);
     transition:
       transform 180ms ease,
       background-color 180ms ease,
@@ -660,7 +557,7 @@
   }
 
   .key:focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--focus);
     outline-offset: 3px;
   }
 
@@ -669,23 +566,17 @@
   }
 
   .menu-trigger {
-    min-height: 2.75rem;
-    gap: 0.8rem;
-    padding: 0 1rem;
-    border-radius: 1rem;
-    background: var(--surface-strong);
-    box-shadow: var(--shadow-soft);
+    width: 2.75rem;
+    height: 2.75rem;
+    padding: 0;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--surface-strong) 72%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--line-color) 55%, transparent);
     cursor: pointer;
   }
 
-  .menu-chevron {
-    margin-left: 0.5rem;
-    opacity: 0.65;
-    transition: transform 180ms ease;
-  }
-
-  .menu-trigger[aria-expanded="true"] .menu-chevron {
-    transform: rotate(180deg);
+  .menu-trigger[aria-expanded="true"] {
+    background: var(--surface-strong);
   }
 
   .menu-dropdown {
@@ -700,9 +591,9 @@
     overscroll-behavior: contain;
     border: 1px solid var(--line-strong);
     border-radius: 1.1rem;
-    background: var(--surface-strong);
+    /* opaque rather than blurred: the desk under it keeps animating */
+    background: linear-gradient(var(--surface-strong) 0 0), var(--bg);
     box-shadow: var(--shadow);
-    backdrop-filter: blur(28px);
   }
 
   .menu-item {
@@ -723,6 +614,9 @@
   }
 
   .menu-item > :first-child {
+    /* icons of different widths still line their labels up */
+    min-width: 20px;
+    justify-content: center;
     color: var(--accent-deep);
   }
 
@@ -731,6 +625,15 @@
     outline: none;
     background: var(--surface-soft);
     box-shadow: inset 0 0 0 1px var(--line-strong);
+  }
+  /* the keys' place, apart from where the pointer rests */
+  .menu-item:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
+
+  .menu-hint {
+    margin-left: auto;
+    padding-left: 0.8rem;
+    color: var(--text-faint);
+    font-size: 0.72rem;
   }
 
   .menu-divider {
@@ -842,7 +745,7 @@
   }
 
   .theme-option input:focus-visible + .theme-option-body {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--focus);
     outline-offset: 4px;
   }
 
@@ -1121,25 +1024,20 @@
     display: block;
   }
 
-  .site-shell .companion-card {
-    width: min(100%, 11rem);
-    align-self: center;
-    justify-self: center;
-    padding: 0.45rem;
-    border-radius: 1.4rem;
+  /* on the desk: no window, just the cat and its floor shadow, standing at
+     the bottom centre of whatever box it was given */
+  .pet-stage[data-bare] {
+    overflow: visible;
+    background: none;
   }
 
-  .site-shell .pet-stage {
-    border-radius: 1rem;
+  .pet-stage[data-fit="contain"] {
+    height: 100%;
   }
 
-  .site-shell .pet-stage::after {
-    position: absolute;
-    inset: 0;
-    border: 1px solid var(--line-strong);
-    border-radius: inherit;
-    content: "";
-    pointer-events: none;
+  .pet-stage[data-fit="contain"] canvas {
+    inset: auto auto 0 50%;
+    translate: -50% 0;
   }
 }
 
@@ -1216,57 +1114,16 @@
   }
 }
 
-@media (max-width: 960px) {
-  /* Stacked layout no longer fits one viewport; let the page scroll again. */
-  .site-shell {
-    height: auto;
-    min-height: 100dvh;
-    overflow: visible;
-  }
-
-  .workspace-grid {
-    grid-template-columns: 1fr;
-    flex: 0 1 auto;
-  }
-
-  .side-stack {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .tasks-card {
-    grid-row: span 2;
+@media (max-width: 1279px) {
+  .page-toolbar {
+    top: 6px;
   }
 }
 
-@media (max-width: 640px) {
-  .site-shell {
-    padding: 0.8rem;
-  }
-
+@media (max-width: 739px) {
   .page-toolbar {
-    margin-bottom: 0.8rem;
-  }
-
-  .surface-card {
-    border-radius: 1.25rem;
-  }
-
-  .music-card {
-    padding: 1.1rem;
-  }
-
-  .side-stack {
-    display: flex;
-  }
-
-  .tasks-card {
-    min-height: 17rem;
-  }
-
-  .play-key {
-    width: 4.5rem;
-    height: 4.5rem;
+    top: 10px;
+    right: 12px;
   }
 }
 
@@ -1304,8 +1161,8 @@
 }
 
 /* Low power (lib/render-budget.ts). The page switches here when the live
-   model is short of headroom on this machine. Nothing is hidden: the cards
-   lose their live backdrop blur (re-rendered under every animated frame) and
+   model is short of headroom on this machine. Nothing is hidden: anything
+   left with a live backdrop blur (re-rendered under every animated frame) loses it, and
    the purely decorative drift and morph animations hold still, so the
    compositor can idle between canvas frames and the GPU goes to the music. */
 html.low-power *,

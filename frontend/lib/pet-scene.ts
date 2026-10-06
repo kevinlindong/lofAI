@@ -32,6 +32,9 @@ export const PET_H = 32
 // of what makes the pose read.
 const GROUND = 28
 const MID = 22
+// the floor shadow's row, just under the ground. it never moves - a hop lifts
+// the cat off it - so it is the line the cat stands on (components/widgets/cat)
+export const SHADOW_ROW = Math.round(GROUND) + 1
 
 // the head sits well forward of the middle of the body, and the body reaches
 // away behind it to a haunch and a tail.
@@ -133,6 +136,10 @@ export const IDLE_FRAME: PetFrame = {
   gazeY: 0,
   affection: 0,
 }
+
+// the cat at rest: the one frame there is with reduced motion, and the pose
+// its picture takes where there's no canvas (lib/cat-desk)
+export const RESTING_FRAME: PetFrame = { ...IDLE_FRAME, phase: 1, swing: 0.6, breathe: 1 }
 
 type Grid = Uint8Array
 
@@ -576,7 +583,7 @@ function ear(
 // lifts two dots reads as a cat that has been nudged rather than as a cat that
 // has jumped.
 function drawShadow(g: Grid, f: PetFrame) {
-  const r = Math.round(GROUND) + 1
+  const r = SHADOW_ROW
   const half = Math.round(17 - f.hop * 6)
   const mid = Math.round(BODY_X)
   for (let c = mid - half; c <= mid + half; c++) {

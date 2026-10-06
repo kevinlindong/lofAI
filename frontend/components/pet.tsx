@@ -1,8 +1,9 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { forwardRef, useEffect, useImperativeHandle, useRef } from "react"
 import { gridNeighbours, paintInk, type InkCells, type InkGeometry } from "@/lib/ink-render"
 import { canvasLoop } from "@/lib/canvas-loop"
+import { renderBusy } from "@/lib/render-budget"
 import { LiquidInk } from "@/lib/liquid-ink"
 import { smoothstep } from "@/lib/dot-field"
 import {
@@ -16,19 +17,37 @@ import {
   LIT,
   HOT,
   DIM,
-  IDLE_FRAME,
   INK,
   PET_H,
   PET_W,
+  RESTING_FRAME,
   type PetFrame,
   type PetMood,
 } from "@/lib/pet-scene"
+import { fitCat } from "@/lib/cat-desk"
 
-export type PetEvent = "add" | "complete" | "clear" | "undo"
+// "lift" and "land": the cat being picked up (an ear pricks) and set down
+// again (the loaf squashes onto whatever it landed on)
+export type PetEvent = "add" | "complete" | "clear" | "undo" | "lift" | "land"
+
+// what the desk can tell the cat besides: something slid in under its paws,
+// and being put away in the drawer
+export type PetNudge = "pleased" | "nap"
 
 // what the cat is reacting to. "pet" is not a PetEvent because nothing outside
 // this component raises it - it is the cat noticing that you clicked on it.
-type Reaction = PetEvent | "pet"
+type Reaction = PetEvent | PetNudge | "pet"
+
+// the desk's handle on the cat. none of it renders anything: the loop reads it
+export interface PetHandle {
+  // react now, or after a moment (a landing waits for the frame to spring home)
+  react(kind: PetEvent | PetNudge, delayMs?: number): void
+  // carried: it purrs the whole way. `follows`: the canvas travels with the
+  // pointer (a drag rather than the keyboard), so where it is needn't be read
+  hold(on: boolean, follows?: boolean): void
+  // the canvas has moved on the page; look where it is again
+  moved(): void
+}
 
 export interface PetSignal {
   kind: PetEvent
@@ -42,6 +61,13 @@ interface PetProps {
   focus: boolean
   playing: boolean
   getLevel: () => number
+  // no panel of unlit dots behind the cat: it sits on the desk itself, with
+  // only its floor shadow under it
+  bare?: boolean
+  // "width" sizes the art from the wrapper's width at the art's proportions;
+  // "contain" fits it inside a box something else sized (a desk frame),
+  // standing at the bottom centre
+  fit?: "width" | "contain"
 }
 
 const PALETTE_VARS = [
@@ -70,7 +96,35 @@ const HOLD_MS: Record<Reaction, number> = {
   clear: 3200,
   undo: 700,
   pet: 1400,
+  lift: 500,
+  land: 600,
+  pleased: 1100,
+  nap: 2400,
 }
+
+// picked up, only an ear moves: it plays over whatever the body is doing (the
+// pat of the press that picked it up), rather than cutting it off
+const EAR_ONLY: Partial<Record<Reaction, true>> = { lift: true }
+
+// with reduced motion nothing moves: a reaction is at most a face, held for
+// its time and then let go
+const STILL_MOOD: Partial<Record<Reaction, PetMood>> = {
+  pet: "purr",
+  pleased: "purr",
+  complete: "happy",
+  clear: "cheer",
+  nap: "sleep",
+}
+
+// an ear flicking back and settling. a decaying wobble rather than a square
+// wave - an ear that snaps between two positions three times reads as a fault
+// in the panel.
+const flick = (secs: number) => smoothstep(0, 0.08, secs) * Math.max(0, Math.exp(-secs * 4) * Math.cos(secs * 13))
+
+// the canvas' place on the page is read at most this often, and never while
+// the desk is being arranged: the loop draws thirty times a second, and a
+// layout read per frame is a layout per frame
+const LOOK_MS = 1000
 
 // how the head follows the beat, as time constants in seconds: drops fast,
 // comes back up slowly. seconds rather than per-frame fractions so the bob
@@ -113,13 +167,20 @@ const ATTENTION_MS = 4000
 const EYE_C = 16
 const EYE_R = 12
 
-export function Pet({ signal, focus, playing, getLevel }: PetProps) {
+export const Pet = forwardRef<PetHandle, PetProps>(function Pet({ signal, focus, playing, getLevel, bare = false, fit = "width" }, ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
 
   // everything the animation loop reads lives in refs: the loop runs at frame
   // rate and must never be the reason react re-renders
   const reactionRef = useRef<{ kind: Reaction; start: number } | null>(null)
+  // an ear's own reaction, over the body's
+  const earRef = useRef<{ kind: Reaction; start: number } | null>(null)
+  // in someone's hand, and where the pointer was when the canvas was last seen
+  const heldRef = useRef<{ follows: boolean; x: number; y: number } | null>(null)
+  // the loop's own hooks: forget where the canvas is, and re-strike the still
+  // frame (reduced motion) now and once the face has been held for `ms`
+  const loopRef = useRef<{ look(inMs?: number): void; still(ms: number): void } | null>(null)
   const focusRef = useRef(focus)
   const playingRef = useRef(playing)
   const levelRef = useRef(getLevel)
@@ -131,11 +192,33 @@ export function Pet({ signal, focus, playing, getLevel }: PetProps) {
   playingRef.current = playing
   levelRef.current = getLevel
 
+  const begin = useRef((kind: Reaction, delayMs = 0) => {
+    const r = { kind, start: performance.now() + delayMs }
+    if (EAR_ONLY[kind]) earRef.current = r
+    else {
+      reactionRef.current = r
+      loopRef.current?.still(delayMs + HOLD_MS[kind])
+    }
+    lastPokeRef.current = Date.now()
+  }).current
+
+  useImperativeHandle(ref, () => ({
+    react: (kind, delayMs) => begin(kind, delayMs),
+    hold: (on, follows = false) => {
+      const p = pointerRef.current
+      heldRef.current = on ? { follows: follows && p !== null, x: p ? p.x : 0, y: p ? p.y : 0 } : null
+      lastPokeRef.current = Date.now()
+      // set down, it springs into its cell: look again once it's there
+      if (!on) loopRef.current?.look(600)
+      loopRef.current?.still(0)
+    },
+    moved: () => loopRef.current?.look(),
+  }), [begin])
+
   useEffect(() => {
     if (!signal) return
-    reactionRef.current = { kind: signal.kind, start: performance.now() }
-    lastPokeRef.current = Date.now()
-  }, [signal])
+    begin(signal.kind)
+  }, [signal, begin])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -169,26 +252,42 @@ export function Pet({ signal, focus, playing, getLevel }: PetProps) {
 
     let pitch = 0
     let dpr = 0
+    // where the canvas is on the page, when that was read (-1: read it next
+    // time), and the scroll it was read at
+    const box = { left: 0, top: 0, width: 0, height: 0 }
+    let look = -1
+    let lookScroll = 0
     // assigning canvas.width wipes the canvas, so only assign when something
     // actually changed - otherwise the observer's first callback erases the
     // frame that has just been drawn
-    const resize = (): boolean => {
+    const resize = (box?: { width: number; height: number }): boolean => {
       const nextDpr = Math.min(2, window.devicePixelRatio || 1)
       // Scale the artwork to the whole card, keeping its original proportions.
-      const nextPitch = Math.max(1, wrap.getBoundingClientRect().width / PET_W)
-      if (nextPitch === pitch && nextDpr === dpr) return false
-      pitch = nextPitch
+      // The layout box, not the drawn one: a frame rising out of the drawer is
+      // scaled for a moment, and that must not shrink the cat for good
+      const w = box ? box.width : wrap.clientWidth, h = box ? box.height : wrap.clientHeight
+      // in a card the cat stands on the card's floor, its body centred, and
+      // the poses that reach past the body use the card's own padding
+      const pad = fit === "contain" ? parseFloat(getComputedStyle(wrap).getPropertyValue("--wf-pad")) || 0 : 0
+      const sized = fit === "contain" ? fitCat(w, h, pad) : { pitch: Math.max(1, w / PET_W), dx: 0, dy: 0 }
+      if (sized.pitch === pitch && nextDpr === dpr) return false
+      pitch = sized.pitch
       dpr = nextDpr
       canvas.width = Math.round(PET_W * pitch * dpr)
       canvas.height = Math.round(PET_H * pitch * dpr)
       canvas.style.width = `${PET_W * pitch}px`
       canvas.style.height = `${PET_H * pitch}px`
+      // the canvas hangs off the box's bottom centre (globals.css), so the
+      // shift is the whole offset of the body inside the art
+      if (fit === "contain") canvas.style.translate = `${(sized.dx - PET_W * pitch / 2).toFixed(2)}px ${sized.dy.toFixed(2)}px`
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      look = -1
       return true
     }
     resize()
-    const sizeWatch = new ResizeObserver(() => {
-      if (resize()) {
+    const sizeWatch = new ResizeObserver((entries) => {
+      const entry = entries[entries.length - 1]
+      if (resize(entry ? entry.contentRect : undefined)) {
         panelDirty = true
         loop?.redraw()
       }
@@ -236,7 +335,7 @@ export function Pet({ signal, focus, playing, getLevel }: PetProps) {
         rim = new LiquidInk(cells, pitch, { radius: 0.46, attack: 0.055, release: 0.08 })
       }
       // Cache the 1,440 unlit dots until the theme or canvas size changes.
-      if (panelDirty) {
+      if (panelDirty && !bare) {
         panelDirty = false
         panel.width = canvas.width
         panel.height = canvas.height
@@ -256,7 +355,7 @@ export function Pet({ signal, focus, playing, getLevel }: PetProps) {
       drawPet(frame)
       place()
       ctx.clearRect(0, 0, PET_W * pitch, PET_H * pitch)
-      ctx.drawImage(panel, 0, 0, PET_W * pitch, PET_H * pitch)
+      if (!bare) ctx.drawImage(panel, 0, 0, PET_W * pitch, PET_H * pitch)
       coat.paint(ctx, COAT, palette[LIT], dt)
       shadow.paint(ctx, HEAD_SHADOW, palette[DIM], dt)
       rim.paint(ctx, RIM, palette[HOT], dt)
@@ -265,6 +364,30 @@ export function Pet({ signal, focus, playing, getLevel }: PetProps) {
         details.y[i] = cells.y[i] + DETAIL_Y[i] * pitch
       }
       paintInk(ctx, details, detailGeo, palette)
+    }
+
+    // where the canvas is, without asking the page every frame: read once,
+    // then followed by the scroll, or by the hand that carries it. one
+    // scratch box, re-filled each frame rather than a fresh one
+    const seen = { left: 0, top: 0, width: 0, height: 0 }
+    const where = (now: number, pointer: { x: number; y: number }) => {
+      const held = heldRef.current
+      if (look < 0 || (!renderBusy() && now - look > LOOK_MS)) {
+        const r = canvas.getBoundingClientRect()
+        box.left = r.left
+        box.top = r.top
+        box.width = r.width
+        box.height = r.height
+        look = now
+        lookScroll = window.scrollY
+        if (held) { held.x = pointer.x; held.y = pointer.y }
+      }
+      const hand = held && held.follows ? held : null
+      seen.left = box.left + (hand ? pointer.x - hand.x : 0)
+      seen.top = box.top + (hand ? pointer.y - hand.y : lookScroll - window.scrollY)
+      seen.width = box.width
+      seen.height = box.height
+      return seen
     }
 
     let raw = 0
@@ -300,13 +423,15 @@ export function Pet({ signal, focus, playing, getLevel }: PetProps) {
 
       // ---- where the cat is looking ----
       const pointer = pointerRef.current
-      const watching = pointer !== null && Date.now() - pointer.at < ATTENTION_MS
+      const held = heldRef.current
+      // carried, it's watching the hand that holds it
+      const watching = pointer !== null && ((held !== null && held.follows) || Date.now() - pointer.at < ATTENTION_MS)
       let wantX: number
       let wantY: number
       let onCat = false
 
       if (watching && pointer) {
-        const rect = canvas.getBoundingClientRect()
+        const rect = where(now, pointer)
         // saturating, so the cursor two panels away and the cursor ten look the
         // same - past a certain point a head is simply turned as far as it goes
         const eyeX = rect.left + ((EYE_C + 0.5) / PET_W) * rect.width
@@ -315,9 +440,9 @@ export function Pet({ signal, focus, playing, getLevel }: PetProps) {
         wantY = Math.tanh((pointer.y - eyeY) / GAZE_SPAN_Y)
         onCat =
           pointer.x >= rect.left &&
-          pointer.x <= rect.right &&
+          pointer.x <= rect.left + rect.width &&
           pointer.y >= rect.top &&
-          pointer.y <= rect.bottom
+          pointer.y <= rect.top + rect.height
       } else if (focusRef.current) {
         // eyes down and steady on whatever it is the two of you are doing
         wantX = -0.15
@@ -362,10 +487,21 @@ export function Pet({ signal, focus, playing, getLevel }: PetProps) {
           reactionRef.current = null
         } else if (reaction.kind === "add" || reaction.kind === "undo") {
           // a task arriving is worth noticing but not celebrating: an ear goes
-          // back and comes down again. a decaying wobble rather than a square
-          // wave - an ear that snaps between two positions three times reads
-          // as a fault in the panel.
-          twitch = smoothstep(0, 0.08, secs) * Math.max(0, Math.exp(-secs * 4) * Math.cos(secs * 13))
+          // back and comes down again
+          twitch = flick(secs)
+        } else if (reaction.kind === "land") {
+          // set down: the same press into the ground as a pat, arriving
+          // quicker - this is the floor meeting it, not a hand - and gone
+          // before the hold ends
+          pat = smoothstep(0, 0.06, secs) * Math.max(-0.35, Math.exp(-secs * 5.5) * Math.cos(secs * 9))
+        } else if (reaction.kind === "pleased") {
+          // something slid in under its paws: a contented face and an ear
+          // flick, no fuss
+          if (elapsed > 0) mood = "purr"
+          twitch = flick(secs)
+        } else if (reaction.kind === "nap") {
+          // into the drawer: curling up already
+          mood = "sleep"
         } else if (reaction.kind === "pet") {
           // being fussed. this used to be a hop, which is what a cat does when
           // you drop something, not when you put your hand on it. a pat
@@ -382,12 +518,23 @@ export function Pet({ signal, focus, playing, getLevel }: PetProps) {
         }
       }
 
+      const ear = earRef.current
+      if (ear) {
+        const secs = Math.max(0, now - ear.start) / 1000
+        if (secs * 1000 >= HOLD_MS[ear.kind]) earRef.current = null
+        // picked up: one clear prick of the ear, a fifth of a second long -
+        // slow enough to read at the twenty frames a busy desk draws - and
+        // settled well inside its half second, so it's never cut off mid-swing
+        else twitch = Math.min(1, twitch + 1.5 * smoothstep(0, 0.07, secs) * Math.max(0, Math.exp(-secs * 5) * Math.cos(secs * 8)))
+      }
+
       // the state it settles into when nothing has just happened to it. the
       // order is the priority: a hand on the cat beats the pomodoro, the
       // pomodoro beats the music, and going to sleep needs all three quiet.
       if (mood === "idle") {
         const idleFor = Date.now() - lastPokeRef.current
-        if (affection > 0.55) mood = "purr"
+        // carried is being held, and being held is purring
+        if (held || affection > 0.55) mood = "purr"
         else if (focusRef.current) mood = "focus"
         else if (playingRef.current) mood = "bop"
         else if (idleFor > 45_000) mood = "sleep"
@@ -429,17 +576,39 @@ export function Pet({ signal, focus, playing, getLevel }: PetProps) {
         affection,
       }, dt)
     }
-    const resting: PetFrame = { ...IDLE_FRAME, phase: 1, swing: 0.6, breathe: 1 }
+    // with reduced motion the loop never runs, and this is all there is: the
+    // resting cat, wearing the face of whatever just happened to it (a purr
+    // while it's held, a grin for a finished task) and nothing that moves
+    const still = () => {
+      const r = reactionRef.current
+      const mood = heldRef.current
+        ? "purr"
+        : r && performance.now() - r.start < HOLD_MS[r.kind] ? STILL_MOOD[r.kind] : undefined
+      paint(mood ? { ...RESTING_FRAME, mood } : RESTING_FRAME)
+    }
     // The cat's motion is eased and time-based, and it reads as smoothly at
     // 30fps on a dot matrix as at 60 - at half the painting.
-    loop = canvasLoop(canvas, tick, () => paint(resting), { fps: 30, lowPowerFps: 20 })
+    loop = canvasLoop(canvas, tick, still, { fps: 30, lowPowerFps: 20 })
+
+    let stillTimer = 0
+    loopRef.current = {
+      look: (inMs) => { look = inMs ? performance.now() - LOOK_MS + inMs : -1 },
+      still: (ms) => {
+        loop?.redraw()
+        if (!ms) return
+        window.clearTimeout(stillTimer)
+        stillTimer = window.setTimeout(() => loop?.redraw(), ms + 20)
+      },
+    }
 
     return () => {
+      loopRef.current = null
+      window.clearTimeout(stillTimer)
       loop?.dispose()
       themeWatch.disconnect()
       sizeWatch.disconnect()
     }
-  }, [])
+  }, [bare, fit])
 
   // any interaction anywhere counts as company, and wakes the cat
   useEffect(() => {
@@ -449,6 +618,13 @@ export function Pet({ signal, focus, playing, getLevel }: PetProps) {
     // a click on the cat itself, as opposed to a click anywhere on the page
     const press = (e: PointerEvent) => {
       poke()
+      // where the hand is: a touch that lifts the cat with a still long press
+      // never moves before it does, and the carry follows it from here
+      pointerRef.current = { x: e.clientX, y: e.clientY, at: Date.now() }
+      // the grip over its ears carries the cat off; that isn't a pat, so
+      // only presses on the cat's own stage count
+      const target = e.target instanceof Node ? e.target : null
+      if (!target || !wrapRef.current?.contains(target) || (target instanceof Element && target.closest("[data-grip]"))) return
       const box = canvasRef.current?.getBoundingClientRect()
       if (!box) return
       if (
@@ -457,7 +633,7 @@ export function Pet({ signal, focus, playing, getLevel }: PetProps) {
         e.clientY >= box.top &&
         e.clientY <= box.bottom
       ) {
-        reactionRef.current = { kind: "pet", start: performance.now() }
+        begin("pet")
       }
     }
     const track = (e: PointerEvent) => {
@@ -478,19 +654,21 @@ export function Pet({ signal, focus, playing, getLevel }: PetProps) {
       window.removeEventListener("keydown", poke)
       document.removeEventListener("pointerleave", forget)
     }
-  }, [])
+  }, [begin])
 
   return (
     <div
       ref={wrapRef}
       className="pet-stage"
-      style={{ aspectRatio: `${PET_W} / ${PET_H}` }}
+      data-bare={bare || undefined}
+      data-fit={fit}
+      style={fit === "width" ? { aspectRatio: `${PET_W} / ${PET_H}` } : undefined}
       role="img"
       aria-label="A relaxing animated cat"
     >
       <canvas ref={canvasRef} aria-hidden />
     </div>
   )
-}
+})
 
 export default Pet

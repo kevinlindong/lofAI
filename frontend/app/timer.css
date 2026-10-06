@@ -1,20 +1,88 @@
+/* ── the layout: four parts, whatever box the row gave us ──────────────── */
+
+/* The label, the time with its keys, the progress and the two dials. Rows
+   aren't square any more, so this box is anything from 428×184 down to
+   320×88: everything inside is a share of the box's height, and nothing is
+   allowed to shrink below its floor, so the parts keep their proportions
+   instead of squashing. `data-fit` comes from lib/timer-fit, measured by the
+   widget itself — "tall" stacks the four parts, as the card did before the
+   desk; "wide" stands the dials beside the time; "narrow" is the stack again,
+   at its smallest. The spare height goes between the rows (space-between),
+   so the dials rest on the floor and the label stays at the top. */
+.timer-widget {
+  --digits: min(clamp(1.9rem, 38cqh, 3.2rem), 13cqi);
+  --key: clamp(2rem, 34cqh, 2.875rem);
+  --meter: clamp(0.24rem, 4.4cqh, 0.52rem);
+  --rail: clamp(1rem, 13cqh, 1.6rem);
+  --dial-text: clamp(0.64rem, 8cqh, 0.72rem);
+  --step: clamp(4px, 5.5cqh, 15px);
+  display: grid;
+  min-width: 0;
+  grid-template-areas: "label" "clock" "meter" "dials";
+  grid-template-columns: minmax(0, 1fr);
+  align-content: space-between;
+  row-gap: var(--step);
+}
+.timer-label-row { grid-area: label; }
+.timer-clock { grid-area: clock; display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: clamp(7px, 2.4cqi, 20px); }
+.flow-meter, .timer-landed { grid-area: meter; }
+.timer-dials { grid-area: dials; }
+/* the note takes both of the bottom rows, the progress bar's and the dials' */
+.timer-landing { grid-row: meter-start / dials-end; grid-column: 1 / -1; }
+/* a tray unfolds under everything, across the whole box */
+.timer-sheet { grid-column: 1 / -1; }
+
+/* the time: as big as the box can carry, and warm while it runs */
+.timer-digits {
+  color: var(--text);
+  font-size: var(--digits);
+  letter-spacing: 0.02em;
+  transition: color 220ms ease;
+}
+.timer-digits[data-running] { color: var(--accent); }
+
+/* the dials: side by side under the time, stacked when they stand beside it */
+.timer-dials { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: clamp(10px, 3.2cqi, 22px); row-gap: var(--step); }
+.timer-widget .fine-dial-head { font-size: var(--dial-text); line-height: 1.15; }
+.timer-widget .fine-dial-value { font-size: 0.88em; }
+.timer-widget .fine-dial-rail { height: var(--rail); margin-top: clamp(1px, 0.9cqh, 4px); }
+.timer-widget .flow-meter { height: var(--meter); }
+
+/* the short, wide box: the dials stand beside the time in their own column,
+   and the progress runs the whole width under both */
+.timer-widget[data-fit="wide"] {
+  --step: clamp(4px, 4.5cqh, 12px);
+  grid-template-areas: "label label" "clock dials" "meter meter";
+  grid-template-columns: minmax(0, 1fr) clamp(108px, 36cqi, 200px);
+  column-gap: clamp(10px, 3cqi, 22px);
+}
+.timer-widget[data-fit="wide"] > .timer-clock { gap: clamp(6px, 2cqi, 16px); }
+.timer-widget[data-fit="wide"] .timer-dials { grid-template-columns: minmax(0, 1fr); align-content: space-between; }
+/* the short, narrow box (a small phone): the stack, at its smallest */
+.timer-widget[data-fit="narrow"] { --step: clamp(4px, 4.5cqh, 12px); --digits: min(clamp(1.8rem, 38cqh, 3.2rem), 13cqi); }
+/* the note under the time is what's asking then: the clock steps back a
+   little so the words, [done] and the two offers all have room */
+.timer-widget[data-note="inline"] { --digits: min(clamp(1.7rem, 28cqh, 2.4rem), 11cqi); --key: clamp(1.9rem, 26cqh, 2.4rem); }
+/* a finger still gets a key it can hit, however short the box */
+@media (pointer: coarse) {
+  .timer-widget { --key: clamp(2.5rem, 34cqh, 2.875rem); }
+}
+
 /* The timer's two keys. Roomier than the shared .key, with a play mark that
    ripples dot by dot into pause and back. Held, the play key is the one thing
    asking to be pressed; running, both keys go quiet so focus time stays calm. */
 
-/* clip rather than hide, as the music card does: a hidden overflow scrolls,
-   and the corner glow gives it room to slide the keys sideways */
-.timer-card { overflow: clip; }
-.timer-keys { display: flex; flex-shrink: 0; gap: 0.55rem; }
+.timer-keys { display: flex; flex-shrink: 0; gap: clamp(5px, 1.8cqi, 9px); }
 
 .timer-key {
   position: relative;
   /* the breath below paints between the key's fill and its mark, low power
      (which drops the blur, and its stacking) included */
   isolation: isolate;
-  width: 2.875rem;
-  height: 2.875rem;
-  border-radius: 0.95rem;
+  width: var(--key, 2.875rem);
+  height: var(--key, 2.875rem);
+  /* the same corner at every size: a third of the key */
+  border-radius: calc(var(--key, 2.875rem) * 0.33);
   cursor: pointer;
   /* releasing lands on a spring; pressing (below) is quick */
   transition:
@@ -198,3 +266,208 @@
 html.low-power .timer-toggle[data-running]::after { animation: none; }
 html.low-power .timer-toggle[data-eager]:not([data-running]):hover:not(:disabled) .timer-face,
 html.low-power .timer-toggle[data-eager]:not([data-running]):hover:not(:disabled) .timer-face::before { animation-iteration-count: 1; }
+
+/* ── the label row: what this block is for ─────────────────────────────── */
+
+.timer-label-row { display: flex; min-width: 0; align-items: baseline; justify-content: space-between; gap: 0.75rem; }
+/* on the desk the frame's tack owns the top-right corner: the row keeps about
+   12px clear of its circle, so "held" doesn't run into the tack */
+.wf .timer-label-row { padding-right: 26px; }
+/* one line, "FOCUS · the task on the desk", cut short with an ellipsis. the
+   padding gives descenders room inside the clip without moving the row */
+.timer-label {
+  min-width: 0;
+  margin-block: -3px;
+  padding-block: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.timer-task {
+  color: var(--text);
+  font-size: 0.74rem;
+  font-weight: 560;
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+.timer-state { flex-shrink: 0; }
+
+/* ── land softly: a focus block ran out ────────────────────────────────── */
+
+/* landed, the note is what's asking; the play key goes quiet, as it does
+   while running, so only one thing on the card is loud */
+.timer-widget[data-landed] .timer-toggle:not([data-running]) {
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--line-color));
+  background: color-mix(in srgb, var(--accent) 7%, var(--control));
+  color: var(--accent-deep);
+  box-shadow: none;
+}
+.timer-widget[data-landed] .timer-toggle:not([data-running]):hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line-color));
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-strong));
+  color: var(--accent-deep);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* the note takes the meter's and dials' place at about their height, so
+   nothing on the desk moves as it comes and goes, and the time above it
+   stays put. the task (or the copy, without one) shares its line with
+   [done]; the other two sit under it. it settles in from just below, like
+   something set down gently */
+.timer-landing {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-content: center;
+  align-items: center;
+  column-gap: 0.6rem;
+  row-gap: 0.15rem;
+  animation: timer-land 620ms var(--spring-bouncy) backwards;
+}
+.timer-landing > * { grid-column: 1 / -1; }
+.timer-landing > p:first-child { grid-row: 1; grid-column: 1; }
+.timer-landing > .landing-key { grid-row: 1; grid-column: 2; }
+.timer-sheet .timer-landing { grid-row: auto; animation: none; }
+.timer-landing p { margin: 0; }
+.timer-landing-task {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.84rem;
+  font-weight: 560;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 200ms ease;
+}
+.timer-landing-task[data-finished] { color: var(--text-dim); text-decoration: line-through; }
+.timer-landing-copy { color: var(--text-dim); font-size: 0.78rem; line-height: 1.25; }
+.timer-landing-keys { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.3rem; }
+/* in a sheet (just the time is narrow) the pills pack a little closer, and
+   a row that still wraps shares out its width, so nothing hangs alone */
+.timer-sheet .timer-landing-keys { gap: 0.3rem; }
+.timer-sheet .timer-landing-keys > .landing-key { flex: 1 1 auto; padding: 0 0.62rem; }
+/* lowercase pills: softer than the timer's own keys, since none is urgent */
+.landing-key {
+  position: relative;
+  display: inline-flex;
+  min-height: 1.625rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.7rem;
+  border: 1px solid var(--line-color);
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 0.74rem;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  transition:
+    translate var(--spring-bouncy-ms) var(--spring-bouncy),
+    scale var(--spring-bouncy-ms) var(--spring-bouncy),
+    background-color 160ms ease,
+    border-color 160ms ease,
+    opacity 160ms ease;
+}
+.landing-key:hover:not([aria-disabled]) {
+  translate: 0 -1px;
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line-color));
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.landing-key:active:not([aria-disabled]) { scale: 0.95; transition-duration: 90ms, 90ms, 160ms, 160ms, 160ms; }
+.landing-key:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.landing-key[aria-disabled]:not([data-finished]) { cursor: progress; opacity: 0.6; }
+.landing-key.is-done[data-accent] { border-color: transparent; background: var(--accent); color: var(--accent-ink); }
+.landing-key.is-done[data-accent]:hover:not([aria-disabled]) { border-color: transparent; background: color-mix(in srgb, var(--accent) 86%, white); }
+/* finished: the word steps aside and the check draws in, short stroke first */
+.landing-word { transition: opacity 120ms ease; }
+.landing-key[data-finished] .landing-word { opacity: 0; }
+.landing-check { position: absolute; top: 50%; left: 50%; translate: -50% -50%; }
+.landing-check.dot-morph > span { --morph-delay: calc(var(--c) * 35ms); }
+/* the pills stay small; a finger gets the full 44px around each */
+@media (pointer: coarse) {
+  .landing-key::before { position: absolute; inset: -9px -2px; content: ""; }
+}
+
+/* just the time: one line that opens the note in a sheet. it takes the
+   meter's place at the meter's height (its tint reaches into the gaps), and
+   hugs its words, so the tint stays clear of the resize corner */
+.timer-landed {
+  display: flex;
+  min-width: 0;
+  max-width: calc(100% - 0.2rem);
+  align-self: flex-start;
+  align-items: center;
+  gap: 0.45rem;
+  margin: calc(-0.3rem - 2px) 0 calc(-0.3rem - 2px) -0.45rem;
+  padding: 0.3rem 0.45rem;
+  line-height: 1;
+  border-radius: 0.8rem;
+  color: var(--accent-deep);
+  font-size: 0.74rem;
+  font-weight: 600;
+  text-align: left;
+  animation: timer-land 620ms var(--spring-bouncy) backwards;
+  transition: background-color 160ms ease;
+}
+.timer-landed-text { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timer-landed:hover,
+.timer-landed[aria-expanded="true"] { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.timer-landed:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.timer-landed-more { flex-shrink: 0; transition: rotate 240ms var(--spring-snappy); }
+.timer-landed[aria-expanded="true"] .timer-landed-more { rotate: 180deg; }
+
+/* with dials, the durations open in a sheet while the note has their place;
+   there's room for them side by side */
+.timer-widget[data-size="m"] .timer-sheet .timer-dials { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+/* once the note is answered, the meter and dials fade back rather than snap */
+.timer-widget[data-back] > :is(.flow-meter, .timer-dials) { animation: timer-back 240ms ease-out backwards; }
+
+@keyframes timer-land { from { opacity: 0; translate: 0 8px; } }
+@keyframes timer-back { from { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .timer-landing, .timer-landed, .timer-widget[data-back] > :is(.flow-meter, .timer-dials) { animation: none; }
+  .landing-key:is(:hover, :active) { translate: none; scale: none; }
+}
+
+/* ── in its desk frame ───────────────────────────────────────────────── */
+
+/* the box is fixed, and the layout at the top of this file fills it: the
+   label up top, the dials (or, in the wide box, the progress) at the floor */
+.wf[data-type="timer"] .timer-widget { height: 100%; }
+/* just the time: the keys go under the digits, and there's no room to name
+   the task the block is for */
+.timer-widget[data-size="s"] > .timer-clock { flex-direction: column; align-items: flex-start; }
+.timer-widget[data-size="s"] { --digits: min(clamp(1.7rem, 30cqh, 2.6rem), 24cqi); }
+.timer-widget[data-size="s"] .timer-task { display: none; }
+/* just the time: the digits are the key to the dials */
+.timer-digits-key {
+  margin: -0.3rem -0.45rem;
+  padding: 0.3rem 0.45rem;
+  border-radius: 0.8rem;
+  cursor: pointer;
+  transition: background-color 160ms ease;
+}
+.timer-digits-key:hover,
+.timer-digits-key[aria-expanded="true"] { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.timer-digits-key:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.timer-sheet {
+  padding-top: 0.85rem;
+  border-top: 1px dashed var(--line-strong);
+  animation: tray-in 240ms ease-out;
+}
+.timer-sheet .timer-dials { grid-template-columns: minmax(0, 1fr); }
+
+/* the drawer preview */
+.preview-digits { color: var(--text); font-size: 1.6rem; font-variant-numeric: tabular-nums; line-height: 1; }
+.preview-meter { display: block; width: 120px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--text-faint) 30%, transparent); }
+
+/* the pull's peek: a breathing dot while a block runs in the drawer */
+.peek-timer { align-items: center; }
+.peek-timer > i { width: 5px; height: 5px; animation: peek-breathe 3.2s ease-in-out infinite; }
+@keyframes peek-breathe { 50% { opacity: 0.35; scale: 0.8; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .timer-sheet { animation: none; }
+}

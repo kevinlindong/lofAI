@@ -22,42 +22,14 @@
   }
 }
 
-/* The page scrolls when the room needs more height than the window has. */
-.site-shell { height: auto; min-height: 100dvh; overflow: visible; }
-.workspace-grid { flex: 1 0 auto; }
-/* clip rather than hide: a hidden overflow is still a scroll container, and
-   focusing a control could slide the whole card sideways under its corner glow */
-.music-card { min-height: 0; overflow: clip; }
-
-.music-panel {
-  display: flex;
-  flex: 1 1 auto;
-  min-height: 0;
-  flex-direction: column;
-  align-items: center;
-  gap: clamp(0.5rem, 1.4vw, 1rem);
-}
-
-/* The ring takes whatever height the room leaves over, as a square. */
-.music-panel .visualizer-stage {
-  flex: 1 1 auto;
-  min-height: clamp(14rem, 34vh, 19rem);
-  container-type: size;
-}
-.music-panel .visualizer-stage > .aspect-square { width: min(100cqw, 100cqh, 26rem); max-width: none; }
-
-/* the play button gives under the finger and springs back */
-.music-panel .play-key { transition: transform var(--spring-jelly-ms) var(--spring-jelly), background-color 180ms ease; }
-.music-panel .play-key:active:not(:disabled) { transform: scale(0.9); transition-duration: 90ms; transition-timing-function: ease-out; }
-
 .sound-panel {
   display: grid;
   width: min(100%, 38rem);
-  gap: clamp(1.1rem, 2.2vw, 1.6rem);
+  gap: clamp(1.1rem, 3.2cqi, 1.6rem);
   color: var(--text);
 }
 .sound-panel :is(button, [role="button"], [role="slider"], textarea):focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: 3px;
 }
 .sound-panel button { cursor: pointer; }
@@ -131,13 +103,6 @@
 .station-glyph { display: grid; gap: 1px; }
 .station-glyph > span { border-radius: 50%; background: currentColor; }
 .station-glyph > :is([data-frame="b"], [data-frame="c"]) { opacity: 0; }
-/* a short window needs every pixel for the ring, so the dial tightens up */
-@media (max-height: 820px) and (min-width: 641px) {
-  .stations { --band: 0.5rem; --emblem-y: 0; }
-  .station { gap: 0.12rem; font-size: 0.7rem; }
-  .sound-panel { gap: 1.25rem; }
-  .site-shell .music-card { padding-block: 1.25rem; }
-}
 /* the dial under each station: a run of dots and a tick at its centre */
 .station::after {
   position: absolute;
@@ -327,7 +292,7 @@ html:not(.dark) .stations-needle-bar { background: color-mix(in srgb, var(--acce
 .sentence {
   margin: 0;
   color: var(--text-faint);
-  font-size: clamp(1.12rem, 1.85vw, 1.42rem);
+  font-size: clamp(1.12rem, 3.6cqi, 1.42rem);
   font-weight: 480;
   line-height: 1.6;
   letter-spacing: -0.022em;
@@ -447,7 +412,7 @@ html:not(.dark) .stations-needle-bar { background: color-mix(in srgb, var(--acce
   color: var(--text);
   caret-color: var(--accent);
   font-family: inherit;
-  font-size: clamp(1.12rem, 1.85vw, 1.42rem);
+  font-size: clamp(1.12rem, 3.6cqi, 1.42rem);
   font-weight: 480;
   line-height: 1.6;
   letter-spacing: -0.022em;
@@ -602,8 +567,8 @@ html:not(.dark) .stations-needle-bar { background: color-mix(in srgb, var(--acce
 .fine-dials {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1.1rem clamp(1.1rem, 2.6vw, 2rem);
-  padding-top: clamp(1rem, 2vw, 1.35rem);
+  gap: 1.1rem clamp(1.1rem, 4cqi, 2rem);
+  padding-top: clamp(1rem, 3cqi, 1.35rem);
   border-top: 1px solid var(--line-color);
 }
 .fine-dial { --at: 50%; --position: 0.5; min-width: 0; }
@@ -798,7 +763,7 @@ html:not(.dark) .stations-needle-bar { background: color-mix(in srgb, var(--acce
 .fine-dial.is-fine .fine-dial-thumb { width: 2px; height: 18px; box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 55%, transparent); }
 .sound-panel .fine-dial-rail:focus-visible,
 .fine-dial-rail:focus-visible { outline: none; }
-.fine-dial-rail:focus-visible:not([data-pressed]) .fine-dial-thumb { box-shadow: 0 0 0 3px var(--surface-strong), 0 0 0 5px var(--accent); }
+.fine-dial-rail:focus-visible:not([data-pressed]) .fine-dial-thumb { box-shadow: 0 0 0 3px var(--surface-strong), 0 0 0 5px var(--focus); }
 
 /* The dial notices you. A lens follows the pointer: the marks under it swell,
    rise toward the line and brighten (each mark's --near, 0..1, is written on
@@ -870,17 +835,29 @@ html.low-power .fine-dial-thumb::before { --wind: 0deg; }
   100% { transform: scaleY(1); }
 }
 
-@media (max-width: 640px) {
+/* Keyed to the panel's own width (.radio-panel is the "sound" container), so
+   the dial and the dials fold on the room the panel has rather than on the
+   window. Eight stations still read across in 452px, so they fold later than
+   the dials, which don't. */
+@container sound (max-width: 440px) {
   /* two rows of four, each with its own stretch of dial, and room under the
      bottom one for the tag that hangs off the needle */
   .stations { grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: 0.55rem; padding-bottom: 0.5rem; }
-  .fine-dials { grid-template-columns: minmax(0, 1fr); gap: 0.9rem; }
+}
+@container sound (max-width: 500px) {
+  /* two dials a row; volume gets a row of its own */
+  .fine-dials { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.9rem 1.5rem; }
+  .fine-dials > :last-child { grid-column: 1 / -1; }
   .sound-foot { flex-wrap: wrap; }
   .sound-foot-actions { gap: 1rem; }
 }
+/* a phone: one dial a row */
+@container sound (max-width: 400px) {
+  .fine-dials { grid-template-columns: minmax(0, 1fr); }
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .sound-panel *, .sound-panel *::before, .music-panel .play-key,
+  .sound-panel *, .sound-panel *::before, .radio-widget .play-key,
   .fine-dial *, .fine-dial *::before { animation: none !important; transition-duration: 0.01ms !important; }
   .fine-dial-thumb { transform: translate(-50%, -50%); }
   .reroll:is(:hover, :focus-visible, :active):not(:disabled) .take-die { rotate: var(--tilt); translate: none; scale: none; }

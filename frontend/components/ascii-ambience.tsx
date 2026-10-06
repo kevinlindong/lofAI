@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react"
 import { BlobSet } from "@/lib/dot-field"
 import { gridNeighbours, paintInk, type InkCells, type InkGeometry } from "@/lib/ink-render"
-import { lowPowerActive } from "@/lib/render-budget"
+import { lowPowerActive, renderBusy } from "@/lib/render-budget"
 
 // the page's background.
 //
@@ -294,7 +294,8 @@ export function AsciiAmbience() {
 
       // In low power the marks keep leaning towards the cursor, but no ink is
       // laid: the trail is the one effect here that paints on every move.
-      if (lowPowerActive()) {
+      // The same while a widget is being carried across the desk.
+      if (lowPowerActive() || renderBusy()) {
         forget()
         return
       }
@@ -322,7 +323,7 @@ export function AsciiAmbience() {
     // a press pools ink under the pointer - the one deliberate mark the
     // background can make, and it evaporates like everything else
     const press = (event: PointerEvent) => {
-      if (motion.matches || document.hidden || lowPowerActive()) return
+      if (motion.matches || document.hidden || lowPowerActive() || renderBusy()) return
       emit(event.clientX, event.clientY, PRESS_R)
       wake()
     }

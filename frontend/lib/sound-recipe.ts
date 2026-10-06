@@ -48,6 +48,13 @@ export const EFFECTS: readonly SoundOption[] = [
   { id: "rain", label: "Rain", prompt: "soft rain" },
 ]
 
+// How a choice reads in a sentence (the sound panel's, the radio's caption).
+// The prompt sent to the model is unchanged.
+const SPOKEN: Record<string, string> = {
+  lofi: "lo-fi beats", soulful: "soul", dreamy: "dreamy lo-fi", rhodes: "Rhodes keys",
+}
+export const spokenWord = (option?: SoundOption) => (option ? SPOKEN[option.id] ?? option.label.toLowerCase() : "")
+
 export interface SoundRecipe {
   instruments: string[]
   vibe: string

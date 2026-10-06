@@ -2,15 +2,20 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react"
 import { DotGlyph } from "@/components/dot-glyph"
+import { useDesk } from "@/components/desk/desk-provider"
+import { useTasks } from "@/components/tasks-provider"
 import { applyTheme, getActiveTheme, THEMES, type ThemeId } from "@/lib/themes"
 
+// each finds its widget on the desk, or takes it out of the drawer
 const SHORTCUTS = [
-  { href: "#radio", label: "Radio", icon: "music" },
-  { href: "#tasks", label: "Tasks", icon: "list" },
-  { href: "#focus-timer", label: "Focus timer", icon: "timer" },
+  { id: "radio", label: "Radio", icon: "music" },
+  { id: "tasks", label: "Tasks", icon: "list" },
+  { id: "timer", label: "Focus timer", icon: "timer" },
 ] as const
 
 export function PageMenu() {
+  const { focusWidget, setDrawerOpen, cancelLift } = useDesk()
+  const { openConnections } = useTasks()
   const [openPanel, setOpenPanel] = useState<"menu" | "settings" | null>(null)
   const [theme, setTheme] = useState<ThemeId>("dark")
   const [saved, setSaved] = useState(true)
@@ -85,6 +90,7 @@ export function PageMenu() {
           id="page-menu-trigger"
           type="button"
           className="key menu-trigger"
+          aria-label="Menu"
           aria-haspopup={openPanel === "settings" ? undefined : "menu"}
           aria-expanded={openPanel !== null}
           aria-controls="page-menu-options"
@@ -101,8 +107,6 @@ export function PageMenu() {
           }}
         >
           <DotGlyph name="menu" dot={2} />
-          <span>Menu</span>
-          <DotGlyph name="chevron" dot={2} className="menu-chevron" />
         </button>
 
         {openPanel === "menu" && (
@@ -114,18 +118,52 @@ export function PageMenu() {
             onKeyDown={handleMenuKey}
           >
             {SHORTCUTS.map((shortcut) => (
-              <a
-                key={shortcut.href}
-                href={shortcut.href}
+              <button
+                key={shortcut.id}
+                type="button"
                 role="menuitem"
                 tabIndex={-1}
                 className="menu-item"
-                onClick={() => setOpenPanel(null)}
+                onClick={() => {
+                  setOpenPanel(null)
+                  focusWidget(shortcut.id)
+                }}
               >
                 <DotGlyph name={shortcut.icon} dot={2} />
                 <span>{shortcut.label}</span>
-              </a>
+              </button>
             ))}
+            <button
+              type="button"
+              role="menuitem"
+              tabIndex={-1}
+              className="menu-item"
+              aria-keyshortcuts="D"
+              onClick={() => {
+                setOpenPanel(null)
+                setDrawerOpen(true)
+              }}
+            >
+              <DotGlyph name="drawer" dot={1} />
+              <span>Widget drawer</span>
+              <span className="menu-hint" aria-hidden>D</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              tabIndex={-1}
+              className="menu-item"
+              onClick={() => {
+                // the Menu key holds focus while the dialog opens, so closing it comes back here
+                closePanel()
+                // a dialog over a lift puts the widget back first
+                cancelLift()
+                openConnections()
+              }}
+            >
+              <DotGlyph name="tray" dot={1} />
+              <span>Connections…</span>
+            </button>
             <div className="menu-divider" role="separator" />
             <button
               type="button"

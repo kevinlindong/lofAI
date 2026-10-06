@@ -9,7 +9,7 @@ import { useRadio } from "@/components/radio-provider"
 import { MAX_CUSTOM_PROMPT_CHARS } from "@/lib/mrt-stream"
 import {
   buildSoundPrompt, CUSTOM_STATION, EFFECTS, INSTRUMENTS, MAX_EFFECTS, MAX_INSTRUMENTS,
-  MOODS, sameRecipe, STATION_PRESETS, stationFor, VIBES, type SoundOption, type SoundRecipe,
+  MOODS, sameRecipe, spokenWord, STATION_PRESETS, stationFor, VIBES, type SoundOption, type SoundRecipe,
 } from "@/lib/sound-recipe"
 
 type Slot = "mood" | "vibe" | "instruments" | "effects"
@@ -20,11 +20,7 @@ type Slot = "mood" | "vibe" | "instruments" | "effects"
 const TUNE_DELAY_MS = 900
 const TUNED_FLASH_MS = 1600
 
-// How a choice reads in the sentence. The prompt sent to the model is unchanged.
-const SPOKEN: Record<string, string> = {
-  lofi: "lo-fi beats", soulful: "soul", dreamy: "dreamy lo-fi", rhodes: "Rhodes keys",
-}
-const say = (option?: SoundOption) => (option ? SPOKEN[option.id] ?? option.label.toLowerCase() : "")
+const say = spokenWord
 const sayAll = (options: readonly SoundOption[], ids: string[]) => {
   const words = ids.map((id) => say(options.find((option) => option.id === id)))
   return words.length < 2 ? words[0] ?? "" : `${words.slice(0, -1).join(", ")} & ${words[words.length - 1]}`
@@ -110,7 +106,9 @@ const TakeDie = memo(function TakeDie({ rolling }: { rolling: boolean }) {
   )
 })
 
-export function SoundPanel() {
+// onExpandedChange: a word tray is open. On the desk that's a transient
+// expansion over the neighbours rather than a change in the panel's height.
+export function SoundPanel({ onExpandedChange }: { onExpandedChange?: (open: boolean) => void } = {}) {
   const {
     controls, setControls, soundDraft, setSoundDraft, selectStation,
     volume, setVolume, wantsAudio, handlePetEvent, requestVariation, streamState,
@@ -180,6 +178,16 @@ export function SoundPanel() {
       writer.setSelectionRange(writer.value.length, writer.value.length)
     }
   }, [prompt, mode])
+
+  // before the frame's observer sees the tray
+  const expandedChange = useRef(onExpandedChange)
+  expandedChange.current = onExpandedChange
+  useLayoutEffect(() => {
+    if (!open) return
+    const report = expandedChange.current
+    report?.(true)
+    return () => report?.(false)
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -258,7 +266,8 @@ export function SoundPanel() {
     const tray = TRAYS[slot]
     const single = slot === "mood" || slot === "vibe"
     return (
-      <div className="word-tray" id={trayId} role="group" aria-label={`Choose ${tray.label.toLowerCase()}`}>
+      // data-no-lift: a press in an open tray is a choice, never the start of a drag
+      <div className="word-tray" id={trayId} role="group" aria-label={`Choose ${tray.label.toLowerCase()}`} data-no-lift>
         <div className="word-tray-options" role={single ? "radiogroup" : undefined} aria-label={tray.label}>
           {tray.options.map((option, i) => {
             const chosen = single ? recipe[slot] === option.id : recipe[slot].includes(option.id)

@@ -1,0 +1,318 @@
+/* The notebook widget. Owned by WP3 (Pocket notebook).
+   One page of dotted rules for stray thoughts, with its top corner turned
+   down. The textarea sits over a mirror of its own words, which sizes it
+   (no JS measuring); the page grows by rows into free space, then scrolls. */
+
+.wf[data-type="notebook"] {
+  /* the ruled line, and the dog-ear's size */
+  --nb-line: 28px;
+  --nb-fold: 24px;
+  /* the margin the caret's line keeps its "make it a task" key in */
+  --nb-margin: 26px;
+  --nb-rule: color-mix(in srgb, var(--text) 17%, transparent);
+}
+
+/* the corner is really turned down: the page is cut along the fold, and
+   whatever is behind the card shows there. The cut reaches past the edges
+   so the card's hairline ring stays on every other side */
+.wf[data-type="notebook"] .wf-body {
+  clip-path: polygon(-4px -4px, calc(100% - var(--nb-fold) - 4px) -4px, calc(100% + 4px) calc(var(--nb-fold) + 4px), calc(100% + 4px) calc(100% + 4px), -4px calc(100% + 4px));
+}
+/* the lifted shadow (and low power's plain ring) and the drawer's ghost are
+   cut along the same fold, so no rounded corner shows past the dog-ear */
+.wf[data-type="notebook"]::after {
+  clip-path: polygon(-120px -120px, calc(100% - var(--nb-fold) - 120px) -120px, calc(100% + 120px) calc(var(--nb-fold) + 120px), calc(100% + 120px) calc(100% + 120px), -120px calc(100% + 120px));
+}
+.drawer-ghost:has(.preview-notebook) {
+  clip-path: polygon(-120px -120px, calc(100% - 140px) -120px, calc(100% + 120px) 140px, calc(100% + 120px) calc(100% + 120px), -120px calc(100% + 120px));
+}
+/* writing on it: the ring warms, so it's clear where the words go. keyboard
+   focus gets the full focus ring (the body's clip reaches 4px past its edge) */
+.wf[data-type="notebook"]:has(.notebook-text:focus) .wf-body {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.wf[data-type="notebook"]:has(.notebook-text:focus-visible) .wf-body {
+  box-shadow: 0 0 0 2px var(--focus);
+}
+
+.notebook {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+}
+
+/* the turned-down corner: the back of the page, lying on the front, with a
+   little shadow under it. It sits in .wf-content's corner (its layout
+   containment makes it the containing block), which is the card's */
+.notebook-corner {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  right: 0;
+  width: var(--nb-fold);
+  height: var(--nb-fold);
+  filter: drop-shadow(-1.5px 1.5px 1.5px rgb(30 40 35 / 0.16));
+  pointer-events: none;
+}
+.dark .notebook-corner { filter: drop-shadow(-1.5px 1.5px 1.5px rgb(0 0 0 / 0.45)); }
+.notebook-corner-flap {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  align-content: end;
+  padding: 0 0 3px 3px;
+  border-bottom-left-radius: 3px;
+  background: linear-gradient(color-mix(in srgb, var(--text) 4%, transparent) 0 0), linear-gradient(color-mix(in srgb, var(--surface-strong) 80%, transparent) 0 0), var(--bg);
+  clip-path: polygon(0 0, 100% 100%, 0 100%);
+  color: color-mix(in srgb, var(--text-faint) 55%, transparent);
+}
+.dark .notebook-corner-flap {
+  background: linear-gradient(color-mix(in srgb, var(--text) 7%, transparent) 0 0), linear-gradient(color-mix(in srgb, var(--surface-strong) 74%, transparent) 0 0), var(--bg);
+}
+
+/* the paper: dotted rules on every line, scrolling with the words. It starts
+   a little under the grip, so the grip's dots never sit on a word */
+.notebook-scroll {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: 6px;
+  /* the scrollbar sits out in the card's margin, and its room is kept, so
+     the words never re-wrap when it comes and goes */
+  margin-right: -10px;
+  padding-right: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* the spare line under the words already keeps the caret off the foot */
+  scroll-padding-block: 6px 0;
+  scrollbar-gutter: stable;
+  background-image: radial-gradient(circle, var(--nb-rule) 0.9px, transparent 1.25px);
+  background-attachment: local;
+  background-clip: content-box;
+  background-position: 0 7px;
+  background-size: 6px var(--nb-line);
+}
+/* the empty paper under the last line writes at the end, so it reads as paper */
+.wf-body .notebook-scroll { cursor: text; }
+
+/* a page cut short by the frame fades at the edge that has more, so a line
+   half out of view reads as more paper, not as clipped. The spare line under
+   the words is blank, so it doesn't count as more. Scrolled, the top 6px
+   (under the grip's box) show no words at all. browsers without scroll
+   timelines keep the plain edge */
+@property --nb-above { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@property --nb-below { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@keyframes notebook-above { from { --nb-above: 0px; } to { --nb-above: 18px; } }
+@keyframes notebook-below { from { --nb-below: 18px; } to { --nb-below: 0px; } }
+@supports (animation-timeline: scroll()) {
+  .notebook-scroll[data-scrolls] {
+    -webkit-mask-image: linear-gradient(transparent calc(var(--nb-above) / 3), #000 calc(var(--nb-above) * 4 / 3), #000 calc(100% - var(--nb-below)), transparent);
+    mask-image: linear-gradient(transparent calc(var(--nb-above) / 3), #000 calc(var(--nb-above) * 4 / 3), #000 calc(100% - var(--nb-below)), transparent);
+    animation: notebook-above linear both, notebook-below linear both;
+    animation-timeline: scroll(self), scroll(self);
+    animation-range: 0px 18px, calc(100% - 46px) calc(100% - 28px);
+  }
+}
+
+.notebook-page {
+  position: relative;
+  display: grid;
+}
+.notebook-text,
+.notebook-mirror {
+  grid-area: 1 / 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0 var(--nb-margin) 0 0;
+  border: 0;
+  font: inherit;
+  font-size: 0.92rem;
+  letter-spacing: 0.005em;
+  line-height: var(--nb-line);
+  overflow-wrap: break-word;
+  tab-size: 4;
+  white-space: pre-wrap;
+  word-break: normal;
+}
+.notebook-text {
+  width: 100%;
+  overflow: hidden;
+  resize: none;
+  background: transparent;
+  color: var(--text);
+  caret-color: var(--accent);
+  outline: none;
+}
+.notebook-text::placeholder { color: var(--text-dim); opacity: 1; }
+.notebook-mirror {
+  position: relative;
+  visibility: hidden;
+}
+
+/* on the caret's line, in the margin: a quiet key, just its dots, so it
+   never covers the words it's about to move. Its top is wherever the line
+   starts (its static position), its right edge the page's */
+.notebook-to-task {
+  position: absolute;
+  z-index: 1;
+  right: -4px;
+  display: grid;
+  width: 26px;
+  height: 24px;
+  place-items: center;
+  margin-top: 2px;
+  border-radius: 8px;
+  color: var(--text-faint);
+  cursor: pointer;
+  visibility: visible;
+  opacity: 0;
+  transition: opacity 140ms ease, color 140ms ease, background-color 140ms ease, visibility 0s linear 200ms;
+}
+/* it comes with the writing, and waits a moment when the page lets go, so a
+   tap that moves focus still lands */
+.notebook:focus-within .notebook-to-task { opacity: 1; visibility: visible; transition-delay: 0s; }
+.notebook:not(:focus-within) .notebook-to-task { visibility: hidden; }
+/* its ring is drawn inside it: the page clips at the key's right edge */
+.notebook-to-task:is(:hover, :focus-visible) {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  box-shadow: inset 0 0 0 1px var(--line-color);
+  color: var(--accent);
+}
+.notebook-to-task:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; box-shadow: none; }
+.notebook-to-task:active { scale: 0.92; }
+@media (pointer: coarse) {
+  /* a finger-sized target around the small key */
+  .notebook-to-task::before { content: ""; position: absolute; inset: -10px -8px; }
+}
+
+/* the foot of the page, in the card's bottom margin (clear of the resize
+   corner): what the key does, "thought parked" after a save, or a notice.
+   One short line at a time; the page's rows stay for words */
+.notebook-foot {
+  position: absolute;
+  left: 22px;
+  right: 36px;
+  bottom: 4px;
+  height: 12px;
+  color: var(--text-faint);
+  font-size: 0.64rem;
+  letter-spacing: 0.02em;
+  line-height: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.notebook-foot > span {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* saving problems, a full page, a note that couldn't be read: the whole
+   sentence is its title (and the status line screen readers hear) */
+.notebook-note { color: var(--text-dim); pointer-events: auto; }
+.notebook-hint,
+.notebook-hint-touch { display: none; align-items: center; gap: 5px; color: var(--accent-deep); }
+.notebook-hint kbd { color: var(--text-faint); font: inherit; font-weight: 600; }
+.notebook-hint-touch { color: var(--text-dim); }
+.notebook-hint-touch > span { color: var(--accent); }
+/* under the pointer or keyboard focus the key says what it does, down here */
+.notebook:has(.notebook-to-task:focus-visible) .notebook-hint { display: inline-flex; }
+@media (hover: hover) {
+  .notebook:has(.notebook-to-task:hover) .notebook-hint { display: inline-flex; }
+}
+.notebook:has(.notebook-to-task:is(:hover, :focus-visible)) .notebook-whisper { visibility: hidden; }
+/* no hover on touch: while writing, the foot says what the dots on the line
+   do, until they've been used once this visit (a whisper takes its turn) */
+@media (hover: none) {
+  .notebook:focus-within:has(.notebook-to-task):not(:has(.notebook-to-task:focus-visible)) .notebook-foot:not(:has(.notebook-whisper)) .notebook-hint-touch { display: inline-flex; }
+}
+
+/* "thought parked": a pencilled whisper after each save */
+.notebook-whisper {
+  opacity: 0;
+  animation: notebook-parked 1.2s ease-out;
+}
+@keyframes notebook-parked {
+  0% { opacity: 0; translate: 0 2px; }
+  18%, 70% { opacity: 1; translate: 0 0; }
+  100% { opacity: 0; }
+}
+
+/* ── the drawer tile: a ruled page with a line or two on it ─────────── */
+
+.preview-notebook {
+  position: relative;
+  align-content: center;
+  justify-content: stretch;
+  gap: 13px;
+  padding: 6px 34px 0;
+}
+.preview-notebook[data-size="m"] { padding-inline: 46px; }
+.preview-notebook-rule {
+  position: relative;
+  display: block;
+  height: 3px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--text) 20%, transparent) 0.9px, transparent 1.2px) 0 50% / 5px 3px space no-repeat;
+}
+/* a line written in dots, just above its rule */
+.preview-notebook-rule > i {
+  position: absolute;
+  bottom: 4px;
+  left: 0;
+  display: block;
+  height: 4px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--text) 48%, transparent) 1.2px, transparent 1.6px) 0 50% / 4px 4px space no-repeat;
+}
+.preview-notebook-rule > b {
+  position: absolute;
+  right: 0;
+  bottom: 4px;
+  display: grid;
+  color: var(--accent);
+}
+.preview-notebook-corner {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 18px;
+  height: 18px;
+  filter: drop-shadow(-1px 1px 1px rgb(30 40 35 / 0.14));
+}
+.preview-notebook-corner > span {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  align-content: end;
+  padding: 0 0 2px 2px;
+  background: linear-gradient(color-mix(in srgb, var(--text) 4%, transparent) 0 0), linear-gradient(color-mix(in srgb, var(--surface-strong) 80%, transparent) 0 0), var(--bg);
+  clip-path: polygon(0 0, 100% 100%, 0 100%);
+  color: color-mix(in srgb, var(--text-faint) 55%, transparent);
+}
+/* the tile's page has its corner turned down too */
+.tile[data-type="notebook"] .tile-preview {
+  clip-path: polygon(-2px -2px, calc(100% - 20px) -2px, calc(100% + 2px) 20px, calc(100% + 2px) calc(100% + 2px), -2px calc(100% + 2px));
+}
+
+/* carried out of the drawer, the ghost is the frame's size: the fold goes to its corner */
+.drawer-ghost .preview-notebook { position: static; }
+.drawer-ghost .preview-notebook-corner { width: 20px; height: 20px; }
+
+/* ── the pull: a folded sheet peeking out while the page has words ──── */
+
+.peek-notebook { align-items: center; color: var(--text-dim); }
+
+@media (prefers-reduced-motion: reduce) {
+  /* no drift or fade: it's there, then it isn't */
+  .notebook-whisper { animation-timing-function: step-end; animation-name: notebook-parked-still; }
+  .notebook-to-task:active { scale: none; }
+}
+@keyframes notebook-parked-still {
+  0%, 99% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* the folded corner is the notebook's; the tack moves in past it */
+.wf[data-type="notebook"] .wf-pin { right: calc(var(--nb-fold) + 4px); }

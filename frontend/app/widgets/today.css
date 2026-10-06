@@ -1,0 +1,166 @@
+/* The today widget. Owned by WP5 (Today). A postcard of the day: a line
+   about it, one bead per focus block, and a cat asleep on the stamp. */
+
+.today { position: relative; }
+.today::after { content: ""; display: block; clear: both; }
+
+/* ── in its desk frame ─────────────────────────────────────────────────── */
+
+/* A 2×1 card: two to three and a half times as wide as it is tall, and as
+   short as 320×88. The stamp leaves the float behind and takes a column of
+   its own, resting in the middle of the card's right side — clear of the
+   tack's corner above it, and out of the words' way. The rest sits in the
+   column beside it, so a line never has to wrap around the stamp's shoulder. */
+.wf[data-type="today"] .today {
+  display: grid;
+  height: 100%;
+  align-content: center;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: clamp(12px, 3.4cqi, 20px);
+}
+.wf[data-type="today"] .today > :not(.today-stamp) { grid-column: 1; }
+.wf[data-type="today"] .today-stamp {
+  float: none;
+  grid-area: 1 / 2 / span 3 / span 1;
+  align-self: center;
+  margin: 0;
+}
+.wf[data-type="today"] .today::after { display: none; }
+/* a short card: smaller words, tighter rows, and the sentence held to the
+   lines that fit (it ends on a whole line, and the whole of it is in the
+   copy the day saves) */
+@container widget (max-height: 123px) {
+  .today-line { margin-top: 0.5rem; font-size: 0.86rem; line-height: 1.35; }
+  .today-beads { margin-top: 0.5rem; }
+  .today-line {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+  }
+}
+@container widget (max-height: 103px) {
+  .today-line { -webkit-line-clamp: 2; }
+}
+
+/* the stamp: perforated edges (holes on a 6px pitch, so its sides are
+   multiples of 6), a warm wash, and the cat in dots. slightly askew, as if
+   stuck on by hand */
+.today-stamp {
+  float: right;
+  display: grid;
+  width: 66px;
+  height: 48px;
+  box-sizing: border-box;
+  margin: -8px -6px 4px 14px;
+  padding: 4px;
+  place-items: center;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent-deep);
+  rotate: 2.5deg;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, radial-gradient(circle at 3px 3px, transparent 1.7px, #000 2.1px) -3px -3px / 6px 6px;
+  mask: linear-gradient(#000 0 0) content-box, radial-gradient(circle at 3px 3px, transparent 1.7px, #000 2.1px) -3px -3px / 6px 6px;
+}
+.dark .today-stamp { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.today-stamp.is-small { float: none; width: 42px; height: 30px; margin: 0; rotate: 3deg; }
+/* the outline over a pale fill of itself; the z off its back */
+.today-cat { position: relative; display: grid; }
+.today-cat > * { grid-area: 1 / 1; }
+/* the fill: head (columns 1-7, rows 2-5) and body (1-12, 6-8) screened in
+   dots on the outline's pitch, one element. where the outline has a dot it
+   covers the fill's, so it reads as the pale cells between */
+.today-cat > .today-cat-fill {
+  --p: calc(var(--dot) + 1px);
+  opacity: 0.28;
+  background: radial-gradient(circle at calc(var(--dot) / 2) calc(var(--dot) / 2), currentColor calc(var(--dot) / 2 - 0.15px), transparent calc(var(--dot) / 2 + 0.15px)) 0 0 / var(--p) var(--p);
+  clip-path: polygon(
+    var(--p) calc(var(--p) * 2), calc(var(--p) * 8) calc(var(--p) * 2), calc(var(--p) * 8) calc(var(--p) * 6),
+    calc(var(--p) * 13) calc(var(--p) * 6), calc(var(--p) * 13) calc(var(--p) * 9), var(--p) calc(var(--p) * 9)
+  );
+}
+.today-cat > .today-cat-z { position: absolute; top: 1px; right: 3px; opacity: 0.55; }
+
+.today-label { display: flex; align-items: baseline; gap: 0.6rem; min-height: 0.68rem; }
+/* a moment's word after saving a copy */
+.today-whisper {
+  color: var(--text-faint);
+  font-size: 0.72rem;
+  font-weight: 450;
+  letter-spacing: 0;
+  text-transform: none;
+  animation: today-whisper 1600ms ease-in both;
+}
+@keyframes today-whisper {
+  from { opacity: 0; }
+  12%, 70% { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.today-line {
+  margin: 0.7rem 0 0;
+  color: var(--text);
+  font-size: 0.95rem;
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+/* "1 h 15 m" and "3 small things" never break in the middle */
+.today-line b { font-weight: 650; white-space: nowrap; }
+.today[data-quiet] .today-line { color: var(--text-dim); }
+
+/* one bead per block, by area, strung on a thread: one line (the widget
+   counts what fits, lib/day-summary beadsThatFit), clear of the stamp */
+.today-beads {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 14px;
+  margin: 0.8rem 0 0;
+  clear: right;
+  /* the thread goes behind the beads, not behind the card */
+  isolation: isolate;
+}
+.preview-today-beads { isolation: isolate; }
+.today-beads > i,
+.preview-today-beads > i {
+  position: relative;
+  display: block;
+  width: var(--d);
+  height: var(--d);
+  flex: none;
+  border-radius: 50%;
+  background: var(--accent);
+}
+/* the thread: a hairline across each gap, behind the beads */
+.today-beads > i:not(:last-child)::after,
+.preview-today-beads > i:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: calc(50% - 0.5px);
+  left: 50%;
+  width: calc(var(--d) / 2 + 7px);
+  height: 1px;
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+/* the count for the rest: no thread runs into it */
+.today-beads > i:has(+ .today-more)::after { display: none; }
+.today-more { color: var(--text-faint); font-size: 0.7rem; line-height: 1; }
+/* a block that lands while you're here pops onto the string */
+.today-beads > i[data-fresh] { animation: today-bead-in var(--spring-bouncy-ms) var(--spring-bouncy) backwards; }
+@keyframes today-bead-in { from { scale: 0; } }
+
+/* ── the drawer tile ───────────────────────────────────────────────────── */
+
+/* shorter lines than the other tiles' (whole dots, on the 5px pitch), so
+   the stamp beside them has the same room to the edge */
+.preview-today { grid-template-columns: auto auto; column-gap: 16px; align-items: center; justify-items: start; }
+.preview-today .preview-line { width: 85px; }
+.preview-today .preview-line.is-short { width: 45px; }
+.preview-today > .today-stamp { grid-column: 2; grid-row: 1 / span 3; align-self: start; }
+.preview-today-beads { display: flex; align-items: center; gap: 5px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .today-beads > i[data-fresh], .today-whisper { animation: none; }
+}
+html.low-power .today-beads > i[data-fresh] { animation-duration: 240ms; animation-timing-function: ease-out; }

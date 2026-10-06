@@ -1,11 +1,12 @@
-import { lowPowerActive, onLowPowerChange } from "./render-budget"
+import { lowPowerActive, onLowPowerChange, renderBusy } from "./render-budget"
 
 export interface LoopRate {
   // Frames per second while the page has headroom. Defaults to 60.
   fps?: number
-  // Frames per second in low power (see render-budget). Keep it at 20 or
-  // above: the scenes integrate at most 0.05 s per frame, so a slower loop
-  // would play its motion in slow motion rather than more coarsely.
+  // Frames per second in low power, and while the desk is being arranged
+  // (see render-budget). Keep it at 20 or above: the scenes integrate at
+  // most 0.05 s per frame, so a slower loop would play its motion in slow
+  // motion rather than more coarsely.
   lowPowerFps?: number
 }
 
@@ -20,7 +21,8 @@ export function canvasLoop(
   const motion = window.matchMedia("(prefers-reduced-motion: reduce)")
   const fullFps = rate.fps ?? 60
   const lowFps = rate.lowPowerFps ?? fullFps
-  const intervalNow = () => 1000 / (lowPowerActive() ? lowFps : fullFps)
+  // arranging the desk (renderBusy) paints at the low-power rate too
+  const intervalNow = () => 1000 / (lowPowerActive() || renderBusy() ? lowFps : fullFps)
   let interval = intervalNow()
   let visible = true
   let disposed = false

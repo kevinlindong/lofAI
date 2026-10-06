@@ -1,0 +1,279 @@
+/* The Radio widget (components/widgets/radio): the ring, the mini player and
+   the whole sound panel, in its three sizes and the phone's tall form. What
+   the panel looks like inside is music-panel.css; this is how the pieces sit
+   in the fixed box, plus the drawer previews and the pull's peek. */
+
+/* ── the box, from the slot metrics ────────────────────────────────────── */
+
+/* Every size lays itself out against the box the frame gives it, worked out
+   from the slot metrics rather than measured: --w/--h slots less the gap and
+   the card's padding. It stays right while a word tray is open (the frame
+   grows past its box, the box itself doesn't change), which is why the ring
+   is sized from this and not from a percentage of the row. */
+:is(.radio-m, .radio-l, .radio-w, .radio-xl) {
+  --box-w: calc(var(--w, 4) * var(--pitch-x, 216px) - var(--gap, 20px) - 2 * var(--wf-pad, 20px));
+  --box-h: calc(var(--h, 4) * var(--pitch-y, 177px) - var(--gap, 20px) - 2 * var(--wf-pad, 20px));
+}
+
+/* ── the ring ──────────────────────────────────────────────────────────── */
+
+/* The ring fills its box, and the caption sits just under it, in the
+   headroom the dots keep for the music: at rest the ring reaches about 80%
+   down its square, so the caption hangs a small gap below that, and the pair
+   is lifted to sit centred. While the music plays the ring swells into that
+   headroom, so the caption glides down to just clear of its fullest swell
+   (98% down the square): the ring stays whole, the words stay clear. */
+.radio-widget {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+}
+.radio-ring {
+  --lift: -12px;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  container: radio-ring / size;
+}
+/* the ring and its soft glow rise together */
+.radio-ring > .aspect-square { width: min(100cqw, 100cqh); max-width: none; translate: 0 var(--lift); }
+.radio-ring::before { translate: 0 var(--lift); }
+/* the play key and the status inside the hole; the key is a third of the
+   ring, whatever the ring's size */
+.radio-ring-key { display: flex; flex-direction: column; align-items: center; gap: clamp(4px, 3cqmin, 12px); }
+.radio-ring .play-key { width: clamp(44px, 30cqmin, 80px); height: clamp(44px, 30cqmin, 80px); }
+@container radio-ring (min(width, height) < 200px) {
+  .radio-ring .play-key > span { scale: 0.72; }
+  .radio-ring .play-status { font-size: 0.56rem; }
+}
+.radio-caption {
+  position: absolute;
+  top: calc(80% + 12px);
+  inset-inline: 6%;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  line-height: 18px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: translate var(--spring-snappy-ms) var(--spring-snappy);
+}
+.radio-caption b { color: var(--text); font-weight: 560; }
+/* on the light papers the quiet half needs a touch more ink at this size */
+html:not(.dark) .radio-caption { color: color-mix(in srgb, var(--text-dim) 82%, var(--text)); }
+/* the square is min(100cqw, 100cqh) of the ring's box: 18% of it, less the
+   12px the caption hangs below 80% at rest */
+.radio-widget[data-live] .radio-caption { translate: 0 calc(min(18cqw, 18cqh) - 12px); }
+/* the play button gives under the finger and springs back */
+.radio-widget .play-key,
+.radio-mini .play-key { transition: transform var(--spring-jelly-ms) var(--spring-jelly), background-color 180ms ease; }
+.radio-widget .play-key:active:not(:disabled),
+.radio-mini .play-key:active:not(:disabled) { transform: scale(0.9); transition-duration: 90ms; transition-timing-function: ease-out; }
+
+/* ── M: the mini player (no canvas) ────────────────────────────────────── */
+
+/* the player and its volume sit together in the middle of the box, with the
+   air shared above and below rather than pushed into one gap */
+.radio-m {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: clamp(8px, calc(0.1 * var(--box-h)), 22px);
+}
+.radio-mini { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.radio-mini .play-key { width: 60px; height: 60px; flex-shrink: 0; box-shadow: 0 10px 22px color-mix(in srgb, var(--accent) 26%, transparent); }
+@container widget (height < 125px) {
+  .radio-mini .play-key { width: 48px; height: 48px; }
+  .radio-mini { gap: 12px; }
+}
+/* the narrowest two slots: the level dots stand down and the station keys
+   draw in, so the station's name still reads whole */
+@container widget (width < 330px) {
+  .radio-m .radio-level { display: none; }
+  .radio-m .radio-step { width: 32px; height: 32px; }
+  .radio-m .radio-mini { gap: 10px; }
+}
+/* the shortest row of slots: the key and the dial give up a few pixels each */
+@container widget (height < 100px) {
+  .radio-mini .play-key { width: 44px; height: 44px; }
+  .radio-m .fine-dial-head { font-size: 0.64rem; }
+  .radio-m .fine-dial-rail { height: 1.15rem; }
+}
+.radio-mini-emblem { display: grid; flex-shrink: 0; align-self: center; color: var(--accent); }
+.radio-mini-text { display: grid; min-width: 0; flex: 1 1 auto; gap: 0.3rem; }
+.radio-mini-name { display: flex; min-width: 0; align-items: flex-end; gap: 10px; }
+.radio-mini-name b { overflow: hidden; min-width: 0; font-size: 0.95rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.radio-mini-text .play-status { text-align: left; }
+.radio-level { --level: 0; display: flex; flex-shrink: 0; align-items: flex-end; gap: 3px; height: 14px; margin-bottom: 3px; }
+.radio-level > i {
+  width: 3px;
+  height: calc(4px + var(--i) * 2px);
+  border-radius: 2px;
+  background: var(--accent);
+  /* lit up to the level, the rest faint */
+  opacity: clamp(0.2, calc(var(--level) * 5 - var(--i)), 1);
+}
+/* a station either way, at the far end of the row but clear of the tack's
+   corner (its hit ring reaches 42px in on a touch screen) */
+.radio-steps { display: flex; flex-shrink: 0; gap: 6px; margin-left: auto; margin-right: 26px; }
+.radio-step { display: grid; width: 36px; height: 36px; place-items: center; padding: 0; border-radius: 12px; color: var(--text-dim); }
+.radio-volume { min-width: 0; }
+
+/* ── L: the ring, a row of eight emblems, the volume ───────────────────── */
+
+.radio-l { display: flex; height: 100%; min-height: 0; flex-direction: column; gap: 12px; }
+.radio-l-ring { position: relative; flex: 1 1 auto; min-height: 0; }
+.radio-l-ring .radio-ring { --lift: -12px; }
+.radio-l-ring .radio-caption { top: calc(80% + 4px); }
+/* the dial without its names: the ring's caption names the one on air */
+.radio-dial .stations { --band: 0.4rem; --emblem-y: 0; grid-template-columns: repeat(8, minmax(0, 1fr)); row-gap: 0; padding-bottom: 0; }
+.radio-dial .station-name { display: none; }
+.radio-dial .station { padding-bottom: calc(var(--band) + 0.15rem); }
+.radio-dial .stations-carriage { display: none; }
+
+/* ── W: the ring on the left, the whole panel on the right ─────────────── */
+
+.radio-w { display: flex; height: 100%; min-height: 0; gap: clamp(16px, 3cqi, 32px); }
+.radio-w-ring { flex: 0 0 clamp(200px, 35%, 330px); }
+:is(.radio-w-ring, .radio-xl-ring) { position: relative; min-height: 0; }
+/* The panel is its own container, named `sound`, so the panel's own rules
+   (music-panel.css) key to the room it has while a `widget` query still
+   reaches past it to the whole box: the one tells it how wide it is, the
+   other how tall the card is. */
+.radio-panel {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: center;
+  container: sound / inline-size;
+}
+.radio-panel .sound-panel { width: 100%; gap: clamp(10px, 2.2cqi, 18px); }
+.radio-panel .sentence { font-size: clamp(0.94rem, 3.7cqi, 1.36rem); line-height: 1.48; }
+.radio-panel .sound-foot { margin-top: 0.3rem; min-height: 1.7rem; }
+.radio-panel .fine-dials { padding-top: clamp(0.6rem, 2cqi, 1rem); gap: 0.7rem 1.4rem; }
+/* the dial inside the panel is the tight one: the card is never as tall as a
+   window, so the names sit close under their emblems */
+.radio-panel .stations { --band: 0.5rem; --emblem-y: 0; }
+.radio-panel .station { gap: 0.12rem; font-size: 0.7rem; }
+/* beside the ring the dial keeps its names, in one row of eight that holds
+   its own stretch of dotted scale */
+.radio-w .radio-panel .stations { grid-template-columns: repeat(8, minmax(0, 1fr)); row-gap: 0; padding-bottom: 0; }
+/* the panel takes the slack between its three parts, so the column beside the
+   ring reads as tall as the ring rather than as a island in the middle */
+.radio-w .radio-panel .sound-panel { gap: clamp(10px, calc(0.08 * var(--box-h)), 40px); }
+@container widget (width < 460px) {
+  .radio-w .radio-panel .station { font-size: 0.64rem; }
+}
+/* a short card: the three dials share one row and show just their numbers */
+@container widget (height < 340px) {
+  .radio-w .radio-panel .fine-dials { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem 1rem; padding-top: 0.6rem; }
+  .radio-w .radio-panel .fine-dials > :last-child { grid-column: auto; }
+  .radio-w .radio-panel .fine-dial-word { display: none; }
+  .radio-w .radio-panel .fine-dial-rail { height: 1.35rem; }
+  .radio-w .radio-panel .sentence { font-size: clamp(0.9rem, 3.4cqi, 1.2rem); }
+  .radio-w .radio-panel .sound-foot { margin-top: 0.1rem; min-height: 1.5rem; }
+}
+/* room enough across to say where each dial stands, short card or not */
+@container sound (min-width: 470px) {
+  .radio-w .radio-panel .fine-dial-word { display: revert; }
+}
+/* the shortest cards: the dial would run under the tack's corner, so the
+   panel gives the corner up */
+@container widget (height < 260px) {
+  .radio-w .radio-panel { padding-right: 20px; }
+}
+
+/* ── XL: the whole card. the ring and its caption on top, the panel below ─ */
+
+/* The old music card, stacked: the ring with its play key and status on top,
+   its caption under it, then the whole sound panel — stations with their
+   names, the sentence, new take / write it yourself, and the dials along the
+   bottom edge over their hairline. The panel is only as tall as it needs; the
+   ring is sized from the box (never more than its share of either side) and
+   is centred in what is left, so the slack reads as air around the ring
+   rather than as a hole above the dials. */
+.radio-xl {
+  --ring: clamp(170px, min(0.44 * var(--box-w), 0.5 * var(--box-h)), 420px);
+  --panel-gap: clamp(12px, calc(0.034 * var(--box-h)), 26px);
+  display: grid;
+  height: 100%;
+  min-height: 100%;
+  grid-template-rows: minmax(0, 1fr) auto;
+  row-gap: clamp(10px, calc(0.03 * var(--box-h)), 28px);
+}
+.radio-xl .radio-xl-ring { align-self: center; width: 100%; height: var(--ring); max-height: 100%; }
+.radio-xl .radio-panel { flex: none; justify-content: start; }
+.radio-xl .radio-panel .sound-panel { gap: var(--panel-gap); }
+.radio-xl .radio-panel .stations { padding-bottom: 0.4rem; }
+/* the sentence, its two little actions and the dials keep the old card's
+   generous spacing, scaled to the box */
+.radio-xl .radio-panel .sound-foot { margin-top: clamp(0.15rem, calc(0.022 * var(--box-h)), 1.1rem); }
+.radio-xl .radio-panel .fine-dials { padding-top: clamp(0.6rem, calc(0.028 * var(--box-h)), 1.4rem); }
+/* a roomy card spends its slack on the panel first, so the air that is left
+   gathers around the ring instead of opening a hole above the dials */
+@container widget (min-height: 560px) {
+  .radio-xl { --panel-gap: clamp(22px, calc(0.05 * var(--box-h)), 40px); }
+}
+/* the shortest cards (a row of 128px) trim the panel rather than the ring */
+@container widget (height < 560px) {
+  .radio-xl .radio-panel .fine-dials { padding-top: 0.6rem; }
+  .radio-xl .radio-panel .sound-foot { margin-top: 0.1rem; min-height: 1.5rem; }
+  .radio-xl .radio-panel .sentence { font-size: clamp(0.94rem, 3.3cqi, 1.22rem); }
+}
+/* The phone's tall form: the same layout in a narrower box. The ring takes
+   most of the width, the stations fold to two rows of four and the dials
+   stack, so the panel needs more of the card and the ring less of it. */
+.radio-xl.is-tall {
+  --ring: clamp(120px, min(0.78 * var(--box-w), 0.3 * var(--box-h)), 300px);
+  --panel-gap: clamp(11px, calc(0.025 * var(--box-h)), 20px);
+  row-gap: clamp(10px, calc(0.022 * var(--box-h)), 20px);
+}
+/* a short phone: the two fine dials share a row and volume keeps its own */
+@container widget (height < 640px) {
+  .radio-xl.is-tall .radio-panel .fine-dials { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem 1rem; padding-top: 0.5rem; }
+  .radio-xl.is-tall .radio-panel .fine-dials > :last-child { grid-column: 1 / -1; }
+  .radio-xl.is-tall .radio-panel .fine-dial-rail { height: 1.35rem; }
+  .radio-xl.is-tall .radio-panel .stations { row-gap: 0.3rem; padding-bottom: 0.2rem; }
+  .radio-xl.is-tall .radio-panel .station { font-size: 0.66rem; }
+}
+
+/* ── the drawer previews ───────────────────────────────────────────────── */
+
+.preview-ring {
+  display: grid;
+  width: 88px;
+  height: 88px;
+  place-items: center;
+  border: 5px dotted var(--dot-3);
+  border-radius: 50%;
+}
+.preview-radio[data-size="xl"] { grid-auto-flow: column; align-items: center; gap: 18px; }
+.preview-radio[data-size="xl"] .preview-ring { width: 72px; height: 72px; }
+.preview-radio-panel { display: grid; gap: 10px; }
+.preview-radio-panel .preview-line { width: 84px; }
+.preview-radio-mini { grid-auto-flow: column; align-items: center; }
+.preview-radio-mini > i { width: 40px; height: 4px; border-radius: 2px; background: currentColor; opacity: 0.6; }
+.preview-stations { display: flex; gap: 3px; }
+.preview-stations > i { width: 8px; height: 8px; border-radius: 50%; background: radial-gradient(circle, currentColor 1px, transparent 1.4px) 0 0 / 3px 3px; }
+.preview-radio-panel .preview-rails { gap: 6px; }
+.preview-radio-panel .preview-rails > i { width: 26px; }
+.preview-radio-panel .preview-rails > i::after { margin-left: 10px; }
+
+/* ── the pull's peek: three level dots while the music plays ───────────── */
+
+.peek-radio > i { animation: peek-level 900ms ease-in-out infinite alternate; }
+.peek-radio > i:nth-child(2) { animation-delay: -300ms; }
+.peek-radio > i:nth-child(3) { animation-delay: -600ms; }
+@keyframes peek-level { to { translate: 0 -5px; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .radio-caption { transition: none; }
+}
+html.low-power .radio-caption { transition: translate 160ms var(--ease-out); }

@@ -1,11 +1,6 @@
 /* Little doorways to other tools. Every mark uses the room's dot grid. */
-.task-heading, .task-heading-actions { display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; }
-.task-heading { flex-wrap: wrap; }
+.task-heading { display: flex; align-items: center; justify-content: space-between; gap: 0.65rem; }
 .task-count { margin-left: 0.7rem; font-size: 0.7rem; }
-.task-heading-actions { margin-left: auto; }
-.task-connections { display: inline-flex; gap: 0.5rem; padding: 0.45rem 0.65rem; font-size: 0.7rem; }
-.task-clear { font-size: 0.67rem; color: var(--text-dim); }
-.task-list { min-height: 8rem; }
 .task-empty { display: grid; justify-items: start; gap: 0.6rem; padding: 1rem 0; color: var(--text-dim); font-size: 0.8rem; }
 .task-empty button { color: var(--accent-deep); font-size: 0.72rem; }
 .task-row { padding: 0.6rem 0; border-bottom: 1px solid var(--line-color); }
@@ -20,7 +15,7 @@
 .task-source button, .task-copy { margin-left: auto; }
 .task-source button { color: var(--accent-deep); }
 .task-message { color: var(--text-dim); font-size: 0.7rem; line-height: 1.5; }
-.task-workspace button:focus-visible, .task-workspace a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+.task-workspace button:focus-visible, .task-workspace a:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; border-radius: 4px; }
 
 .connections-dialog { position: fixed; inset: 0; margin: auto; padding: 0; width: min(850px, calc(100vw - 2rem)); max-height: min(850px, calc(100dvh - 2rem)); border: 1px solid var(--line-strong); border-radius: 1.7rem; color: var(--text); background: var(--bg); box-shadow: var(--shadow); overflow: hidden; }
 .connections-dialog[open] { display: flex; flex-direction: column; animation: connections-arrive 320ms var(--spring-snappy, ease); }
@@ -76,7 +71,7 @@
 .connection-more { padding: 0.5rem; font-size: 0.73rem; }
 .connection-export-row { display: flex; flex-wrap: wrap; gap: 0.65rem; }
 .connection-export-row .key { padding: 0.6rem 0.85rem; font-size: 0.75rem; }
-.connections-dialog :is(button, a, input, select):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.connections-dialog :is(button, a, input, select):focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 .connections-dialog button:disabled { opacity: 0.45; cursor: not-allowed; }
 @keyframes connections-arrive { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: none; } }
 @media (max-width: 600px) {

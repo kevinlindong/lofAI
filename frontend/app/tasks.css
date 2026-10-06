@@ -1,0 +1,165 @@
+/* Tasks inside its widget: rows, the per-row bookmark, the land-softly row,
+   how the list sits and scrolls in its fixed box, and its drawer preview. */
+
+/* "1/3 done": the label's size and weight beside it, but lowercase (so a
+   little less tracking), in an accent deep enough to read at this size */
+.task-count {
+  margin-left: 0.7rem;
+  color: color-mix(in srgb, var(--accent-deep) 85%, var(--text));
+  font-size: 0.68rem;
+  font-weight: 680;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: 0.08em;
+}
+
+/* ── the bookmark: put one task on the desk ───────────────────────────── */
+
+/* it waits out of sight until the row is hovered or focused, and pairs up
+   with the remove key; the row on the desk always shows it, filled */
+.task-pin {
+  display: grid;
+  min-width: 24px;
+  min-height: 24px;
+  margin-right: -0.4rem;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--text-dim);
+  opacity: 0;
+  transition: opacity 160ms ease, color 160ms ease;
+}
+.task-row:is(:hover, :focus-within) .task-pin { opacity: 0.7; }
+.task-row .task-pin:is(:hover, [aria-pressed="true"]) { color: var(--accent-deep); opacity: 1; }
+/* a key kept quiet at rest is whole while it has keyboard focus, ring and all */
+.task-row :is(.task-pin, .task-remove):focus-visible { opacity: 1; }
+/* nothing hovers on touch: it stays in sight, quietly */
+@media (hover: none) {
+  .task-pin { opacity: 0.45; }
+}
+/* a finger gets a full 44px around both row keys (the cross deletes at
+   once), without the rows growing */
+@media (pointer: coarse) {
+  .task-row :is(.task-pin, .task-remove) { min-width: 44px; min-height: 44px; margin-block: -10px; }
+  .task-row .task-pin { margin-inline: -0.5rem; }
+}
+/* filling runs top down, like a ribbon let out; emptying runs back up */
+.task-pin .dot-morph > span { --morph-delay: calc((6 - var(--r)) * 22ms); }
+.task-pin[aria-pressed="true"] .dot-morph > span { --morph-delay: calc(var(--r) * 34ms); }
+
+/* the accent mark under the task that's on the desk */
+.task-on-desk {
+  margin: 0.3rem 0 0 1.45rem;
+  color: color-mix(in srgb, var(--accent-deep) 85%, var(--text));
+  font-size: 0.61rem;
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+}
+/* just pinned: it drops in once (not every mark on load) */
+.task-on-desk[data-fresh] { animation: task-mark-in 520ms var(--spring-bouncy) backwards; }
+@keyframes task-mark-in { from { opacity: 0; translate: 0 -5px; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .task-on-desk[data-fresh] { animation: none; }
+  .task-pin .dot-morph > span { transition-delay: 0s !important; }
+}
+
+/* ── in its desk frame ───────────────────────────────────────────────── */
+
+/* The box is fixed, and since v3 its rows are 128–224 tall rather than square:
+   L is 236–428px of content and M only 88–184. So the chrome gives up its
+   slack first (one header line, a slim input, tight rows) and the rows take
+   what is left; past that the list scrolls, with the fade saying so. The
+   numbers below are the M box at 1280×600 (320×88, the tightest in SPEC3 §2):
+   header 28 + 6 + two 31px rows = 96, and 2 whole rows from 1280×720 up. */
+.wf[data-type="tasks"] .task-workspace { flex: 1 1 auto; min-height: 0; gap: 10px; }
+.wf[data-type="tasks"][data-size="m"] .task-workspace { gap: 6px; }
+/* the list already sits a gap below the input */
+.wf[data-type="tasks"] .task-empty { padding: 0.25rem 0 0.35rem; }
+.wf[data-type="tasks"][data-size="m"] .task-empty { padding: 0.15rem 0; font-size: 0.75rem; }
+/* narrow on tight columns: the whole prompt still fits beside [+] */
+@container widget (max-width: 230px) {
+  .task-form { gap: 0.375rem; }
+  .task-form input { padding-inline: 0.625rem; font-size: 0.8125rem; }
+  .task-form .key { padding-inline: 0.5rem; }
+}
+.task-connections { width: 2.25rem; height: 2.25rem; flex-shrink: 0; padding: 0; }
+/* one header line, with the keys at its far end and the label taking the rest */
+.wf .task-heading { justify-content: flex-start; gap: 0.5rem; }
+.wf .task-heading > :first-child { display: flex; min-width: 0; align-items: baseline; margin-right: auto; }
+/* on the desk the frame's tack owns the top-right corner (a 24px circle 10px
+   in, with a 32px hit area): the header ends about 12px clear of the circle,
+   so the tack doesn't read as one more key in the row (40px hit on touch) */
+.wf .task-heading { padding-right: 26px; }
+.wf :is(.task-connections, .task-add) { width: 32px; height: 32px; border-radius: 0.7rem; }
+.wf[data-size="m"] :is(.task-connections, .task-add) { width: 28px; height: 28px; border-radius: 0.6rem; }
+/* the input takes the header's place in M: same line, same height */
+.wf .task-heading > .task-form { min-width: 0; flex: 1 1 auto; }
+.wf[data-size="m"] .task-form input { padding-block: 0.1875rem; border-radius: 0.7rem; font-size: 0.8125rem; }
+.wf[data-size="m"] .task-form .key { width: 28px; height: 28px; padding: 0; border-radius: 0.6rem; }
+.wf[data-size="l"] .task-form input { padding-block: 0.4375rem; }
+@media (pointer: coarse) {
+  .wf .task-heading { padding-right: 30px; }
+  /* a full 44px for a finger through a pseudo-element, so the header line
+     keeps its height and the key its size */
+  .wf :is(.task-connections, .task-add, .task-form .key) { position: relative; }
+  .wf :is(.task-connections, .task-add, .task-form .key)::before { position: absolute; inset: -6px; content: ""; }
+  .wf[data-size="m"] :is(.task-connections, .task-add, .task-form .key)::before { inset: -8px; }
+}
+/* the list scrolls inside the widget once it can't grow; the page never does */
+.task-scroll {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-right: -0.5rem;
+  padding-right: 0.5rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+/* a list cut short (at the fold) fades out at the bottom until it's scrolled
+   to the end, so the last row reads as more below, not as clipped. browsers
+   without scroll timelines keep the plain edge */
+@property --task-more { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@keyframes task-more {
+  from, 90% { --task-more: 24px; }
+  to { --task-more: 0px; }
+}
+@supports (animation-timeline: scroll()) {
+  .task-scroll {
+    -webkit-mask-image: linear-gradient(#000 calc(100% - var(--task-more)), transparent);
+    mask-image: linear-gradient(#000 calc(100% - var(--task-more)), transparent);
+    animation: task-more linear both;
+    animation-timeline: scroll(self);
+  }
+}
+/* ── the rows in the frame: dense enough that whole ones fit ──────────── */
+
+/* L: 8px of air above and below the 20px line, so a row is 37px and five of
+   them fit the 294px box at 1440×800 (four at 1280×600, with the fade) */
+.wf[data-type="tasks"] .task-row { padding: 0.5rem 0; }
+.wf[data-type="tasks"] .task-row-main { gap: 0.625rem; }
+.wf[data-type="tasks"] .task-source { margin-top: 0.25rem; }
+.wf[data-type="tasks"] .task-on-desk { margin-top: 0.2rem; }
+/* M, the short list: 31px rows, and a source says where it is in one line
+   (its icon and the link; the name and the sync key belong to the long list) */
+.wf[data-type="tasks"][data-size="m"] .task-row { padding: 0.3rem 0; }
+.wf[data-type="tasks"][data-size="m"] .task-text { font-size: 0.8125rem; line-height: 1.35; }
+.wf[data-type="tasks"][data-size="m"] .task-source { margin: 0.1rem 0 0 1.45rem; }
+.wf[data-type="tasks"][data-size="m"] .task-source > :is(span:not(.service-icon), button) { display: none; }
+.wf[data-type="tasks"][data-size="m"] .task-on-desk { margin-top: 0.1rem; font-size: 0.58rem; }
+.wf[data-type="tasks"][data-size="m"] .task-clear { min-height: 1.25rem; font-size: 0.66rem; }
+
+.task-clear {
+  display: block;
+  min-height: 1.5rem;
+  margin-left: 1.45rem;
+  color: var(--text-dim);
+  font-size: 0.7rem;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+.task-clear:hover { color: var(--accent-deep); }
+
+/* the drawer preview */
+.preview-task { display: flex; align-items: center; gap: 8px; }
+.preview-task > i { width: 8px; height: 8px; border: 1px dotted currentColor; }
