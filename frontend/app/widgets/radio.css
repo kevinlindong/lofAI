@@ -18,7 +18,7 @@
 /* ── the ring ──────────────────────────────────────────────────────────── */
 
 /* The ring fills its box, and the caption sits just under it, in the
-   headroom the dots keep for the music: at rest the ring reaches about 80%
+   headroom the dots keep for the music: at rest the ring reaches about 82%
    down its square, so the caption hangs a small gap below that, and the pair
    is lifted to sit centred. While the music plays the ring swells into that
    headroom, so the caption glides down to just clear of its fullest swell
@@ -49,7 +49,7 @@
 }
 .radio-caption {
   position: absolute;
-  top: calc(80% + 12px);
+  top: calc(82% + 12px);
   inset-inline: 6%;
   margin: 0;
   overflow: hidden;
@@ -64,9 +64,9 @@
 .radio-caption b { color: var(--text); font-weight: 560; }
 /* on the light papers the quiet half needs a touch more ink at this size */
 html:not(.dark) .radio-caption { color: color-mix(in srgb, var(--text-dim) 82%, var(--text)); }
-/* the square is min(100cqw, 100cqh) of the ring's box: 18% of it, less the
-   12px the caption hangs below 80% at rest */
-.radio-widget[data-live] .radio-caption { translate: 0 calc(min(18cqw, 18cqh) - 12px); }
+/* the square is min(100cqw, 100cqh) of the ring's box: 16% of it, less the
+   12px the caption hangs below 82% at rest */
+.radio-widget[data-live] .radio-caption { translate: 0 calc(min(16cqw, 16cqh) - 12px); }
 /* the play button gives under the finger and springs back */
 .radio-widget .play-key,
 .radio-mini .play-key { transition: transform var(--spring-jelly-ms) var(--spring-jelly), background-color 180ms ease; }
@@ -129,7 +129,7 @@ html:not(.dark) .radio-caption { color: color-mix(in srgb, var(--text-dim) 82%, 
 .radio-l { display: flex; height: 100%; min-height: 0; flex-direction: column; gap: 12px; }
 .radio-l-ring { position: relative; flex: 1 1 auto; min-height: 0; }
 .radio-l-ring .radio-ring { --lift: -12px; }
-.radio-l-ring .radio-caption { top: calc(80% + 4px); }
+.radio-l-ring .radio-caption { top: calc(82% + 4px); }
 /* the dial without its names: the ring's caption names the one on air */
 .radio-dial .stations { --band: 0.4rem; --emblem-y: 0; grid-template-columns: repeat(8, minmax(0, 1fr)); row-gap: 0; padding-bottom: 0; }
 .radio-dial .station-name { display: none; }

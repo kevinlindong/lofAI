@@ -19,6 +19,11 @@ const { chromium } = process.env.PLAYWRIGHT_MODULE_PATH
   ? createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE_PATH)
   : await import("playwright")
 const browser = await chromium.launch({ headless: true, executablePath: process.env.CHROME_EXECUTABLE || undefined })
+// Playwright hides scrollbars by default, which is a Mac on its trackpad alone.
+// With a mouse plugged in (a dock, say) macOS draws classic scrollbars that
+// take room, so a second browser keeps them; launched only if a check asks
+let barsBrowser = null
+const withBars = async () => (barsBrowser ??= await chromium.launch({ headless: true, ignoreDefaultArgs: ["--hide-scrollbars"], executablePath: process.env.CHROME_EXECUTABLE || undefined }))
 const sliders = ["style match", "variation", "volume", "Work", "Rest"]
 // the four that start on the desk (v2: Sound is part of Radio); built drawer-only widgets (Today, Clock…)
 // may be listed alongside them in the drawer
@@ -36,8 +41,8 @@ const wait = (page, ms) => page.waitForTimeout(ms)
 
 // A fresh browser profile per check. `seed` is written to localStorage before
 // the first load only, so reloads see what the page itself saved.
-async function makePage({ width = 1440, height = 780, seed = { todos: JSON.stringify(TASKS), "lofai.theme": "light" }, touch = false, reducedMotion = "no-preference" } = {}) {
-  const context = await browser.newContext({ viewport: { width, height }, reducedMotion, ...(touch ? { hasTouch: true, isMobile: true } : {}) })
+async function makePage({ width = 1440, height = 780, seed = { todos: JSON.stringify(TASKS), "lofai.theme": "light" }, touch = false, reducedMotion = "no-preference", scrollbars = false } = {}) {
+  const context = await (scrollbars ? await withBars() : browser).newContext({ viewport: { width, height }, reducedMotion, ...(touch ? { hasTouch: true, isMobile: true } : {}) })
   // Every external request is blocked: no account, model, or service is needed.
   await context.route("**/*", route => new URL(route.request().url()).origin === baseOrigin ? route.continue() : route.abort())
   await context.addInitScript(seed => {
@@ -1416,6 +1421,34 @@ test("44. pinning or unpinning never moves the widget: only the tack taps in and
   await page.context().close()
 })
 
+test("45. with classic scrollbars (a Mac with a mouse plugged in), a widget lifted on a desk that just fits the window stays in hand as the spare row brings the scrollbar in, and lands where it's let go", async () => {
+  for (const [width, height] of [[1440, 800], [1512, 860]]) {
+    for (const id of ["cat", "tasks", "timer"]) {
+      const page = await makePage({ width, height, seed: SEEN, scrollbars: true })
+      const fits = await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)
+      assert.ok(fits, `${width}×${height}: the untouched desk fits the window, so no scrollbar is drawn yet`)
+      const all = await frames(page), radio = all.radio
+      const g = await page.locator(`#widget-${id} [data-grip]`).boundingBox()
+      const to = { x: radio.left + radio.width * 0.3, y: radio.top + radio.height * 0.6 }
+      let held = null, bar = 0
+      await drag(page, { x: g.x + g.width / 2, y: g.y + g.height / 2 }, to, {
+        steps: 12,
+        hold: async () => {
+          held = await lifted(page)
+          bar = await page.evaluate(() => innerWidth - document.documentElement.clientWidth)
+        },
+      })
+      await wait(page, 700)
+      assert.ok(bar > 0, `${width}×${height}: the lift's spare row brings in a scrollbar that takes room (else this checks nothing)`)
+      assert.equal(held, `widget-${id}`, `${width}×${height} ${id}: still in hand once the scrollbar is in`)
+      const mine = (await frames(page))[id]
+      assert.ok(to.x >= mine.left && to.x <= mine.right, `${width}×${height} ${id}: it lands on the side it was let go (${mine.left}-${mine.right} vs ${to.x})`)
+      assert.deepEqual(page.errors, [])
+      await page.context().close()
+    }
+  }
+})
+
 try {
   const filter = process.env.DESK_TEST_FILTER ? new RegExp(process.env.DESK_TEST_FILTER) : null
   assert.ok(tests.some(entry => !filter || filter.test(entry.name)), "No desk tests matched DESK_TEST_FILTER")
@@ -1424,6 +1457,6 @@ try {
     try { await entry.run(); console.log(`PASS  ${entry.name}`) }
     catch (error) { failures.push(entry.name); console.error(`FAIL  ${entry.name}\n${error.stack}`) }
   }
-} finally { await browser.close() }
+} finally { await browser.close(); await barsBrowser?.close() }
 
 assert.equal(failures.length, 0, `${failures.length} desk browser check(s) failed`)

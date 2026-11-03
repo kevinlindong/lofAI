@@ -331,7 +331,8 @@
 
   html {
     min-width: 320px;
-    /* the desk centres on clientWidth; a scrollbar coming and going must not move it */
+    /* the desk sizes and centres itself in the shell inside this gutter; a
+       scrollbar coming and going must not move it */
     scrollbar-gutter: stable;
     /* and the gutter it keeps reads as page, not as an empty track */
     scrollbar-color: color-mix(in srgb, var(--text-faint) 50%, transparent) transparent;

@@ -174,10 +174,13 @@ export function Desk() {
     const measure = () => {
       frame = 0
       const was = metrics.current
-      // the root's width picks the bucket and the slot. with a classic
-      // scrollbar Chrome counts the stable gutter in it, so the board sits
-      // half a gutter nearer the edges there; the shell still centres it
-      const m = metricsFor(document.documentElement.clientWidth, window.innerHeight)
+      // the shell's width picks the bucket and the slot. it is laid out
+      // inside the root's stable scrollbar gutter, so it holds still when a
+      // classic scrollbar (a mouse plugged in, on a Mac) comes and goes. the
+      // root's own clientWidth does not: it leaves the gutter out only while
+      // the bar is drawn, so the spare row a lift adds, pushing the page past
+      // the fold, read as a narrower window and dropped the widget in hand
+      const m = metricsFor(shell.clientWidth, window.innerHeight)
       metrics.current = m
       el.style.setProperty("--col", `${m.colW}px`)
       el.style.setProperty("--row", `${m.rowH}px`)
